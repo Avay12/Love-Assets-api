@@ -27,6 +27,11 @@ class Letter(Base):
     
     # Media & Assets
     photos: Mapped[Optional[List[str]]] = mapped_column(JSON, default=list)
+
+    # Type-specific payload (age, event date/venue, gift accounts, ...).
+    # Kept as JSON so each letter type can carry its own shape without a table
+    # per type; the per-type Pydantic schemas are what actually validate it.
+    details: Mapped[Optional[dict]] = mapped_column(JSON, default=dict)
     
     # Music Track
     song_id: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)

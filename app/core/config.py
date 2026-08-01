@@ -17,6 +17,14 @@ class Settings(BaseSettings):
     # Storage
     UPLOAD_DIR: str = "./uploads"
 
+    # Public base URL of the frontend, used to build the share link that goes
+    # out in SMS/voice messages. Previously hardcoded to a placeholder domain.
+    PUBLIC_APP_URL: str = "http://localhost:8080"
+
+    # Public base URL of this API, used to turn stored upload paths into
+    # absolute URLs the browser can load cross-origin.
+    PUBLIC_API_URL: str = "http://localhost:8000"
+
     # Integration
     SEVEN_API_KEY: str = ""
 

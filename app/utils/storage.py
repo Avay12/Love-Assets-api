@@ -1,11 +1,13 @@
 import os
 import uuid
-import shutil
-from fastapi import UploadFile, HTTPException, status
+
+from fastapi import HTTPException, UploadFile, status
+
 from app.core.config import settings
 
 ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".mp3", ".wav"}
-MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB limit
+MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
+CHUNK_SIZE = 64 * 1024
 
 
 def ensure_upload_dir_exists() -> str:
@@ -14,31 +16,50 @@ def ensure_upload_dir_exists() -> str:
     return upload_path
 
 
+def public_url_for(filename: str) -> str:
+    """Absolute URL: the browser loads these from a different origin than the
+    frontend, so a bare '/uploads/...' would resolve against the app instead."""
+    return f"{settings.PUBLIC_API_URL.rstrip('/')}/uploads/{filename}"
+
+
 async def save_uploaded_file(file: UploadFile) -> tuple[str, str, int]:
-    filename = file.filename or "file.bin"
-    ext = os.path.splitext(filename)[1].lower()
+    # basename() first. The client controls this string, and without it a name
+    # like "../../../pwned.png" passes the extension check and escapes the
+    # upload directory -- the uuid prefix does not neutralise a "../".
+    raw_name = os.path.basename(file.filename or "file.bin").replace("\\", "_")
+    ext = os.path.splitext(raw_name)[1].lower()
 
     if ext not in ALLOWED_EXTENSIONS:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Unsupported file format '{ext}'. Allowed: {', '.join(ALLOWED_EXTENSIONS)}"
+            status.HTTP_400_BAD_REQUEST,
+            f"Unsupported file format '{ext}'. Allowed: {', '.join(sorted(ALLOWED_EXTENSIONS))}",
         )
 
     upload_dir = ensure_upload_dir_exists()
-    unique_filename = f"{uuid.uuid4().hex[:12]}_{filename.replace(' ', '_')}"
+    unique_filename = f"{uuid.uuid4().hex[:12]}_{raw_name.replace(' ', '_')}"
     file_path = os.path.join(upload_dir, unique_filename)
 
-    file_size = 0
-    with open(file_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
-        file_size = os.path.getsize(file_path)
+    # Defence in depth: refuse anything that still resolves outside the dir.
+    if os.path.commonpath([upload_dir, os.path.abspath(file_path)]) != upload_dir:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid filename.")
 
-    if file_size > MAX_FILE_SIZE:
-        os.remove(file_path)
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"File exceeds maximum size limit of 10MB."
-        )
+    # Stream, and abort the moment the cap is passed, instead of writing the
+    # whole body to disk and measuring it afterwards. await file.read() also
+    # keeps this off the event loop, unlike the previous shutil.copyfileobj.
+    size = 0
+    try:
+        with open(file_path, "wb") as buffer:
+            while chunk := await file.read(CHUNK_SIZE):
+                size += len(chunk)
+                if size > MAX_FILE_SIZE:
+                    raise HTTPException(
+                        status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                        "File exceeds the 10MB limit.",
+                    )
+                buffer.write(chunk)
+    except Exception:
+        if os.path.exists(file_path):
+            os.remove(file_path)
+        raise
 
-    public_url = f"/uploads/{unique_filename}"
-    return unique_filename, public_url, file_size
+    return unique_filename, public_url_for(unique_filename), size

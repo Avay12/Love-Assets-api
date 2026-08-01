@@ -6,6 +6,7 @@ from sqlalchemy import select, func, delete
 
 from app.db.models.letter import Letter
 from app.schemas.letter import LetterCreate, LetterUpdate
+from app.core.config import settings
 from app.services.seven_service import SevenService
 
 
@@ -50,7 +51,7 @@ class LetterService:
         await db.refresh(letter)
 
         if data.delivery_method == "sms" and data.delivery_contact:
-            text = f"You received a {data.type} letter from {data.from_name}! View it here: https://yourapp.com/letters/{letter.slug}"
+            text = f"You received a {data.type} letter from {data.from_name}! View it here: {settings.PUBLIC_APP_URL.rstrip('/')}/l/{letter.slug}"
             await SevenService.send_sms(to=data.delivery_contact, text=text, delay=data.scheduled_at)
         elif data.delivery_method == "call" and data.delivery_contact:
             text = f"Hello {data.to_name}, you have a new {data.type} letter from {data.from_name}."

@@ -4,6 +4,7 @@ from fastapi import HTTPException, status
 
 from app.services.letter_service import LetterService
 from app.schemas.delivery import DeliveryRequest, DeliveryResponse
+from app.core.config import settings
 from app.services.seven_service import SevenService
 
 
@@ -34,7 +35,7 @@ class DeliveryService:
         elif request.method == "sms":
             msg = f"SMS notification scheduled for '{request.contact or 'recipient'}'."
             if request.contact:
-                text = f"You received a letter from {letter.from_name}! View it here: https://yourapp.com/letters/{letter.slug}"
+                text = f"You received a letter from {letter.from_name}! View it here: {settings.PUBLIC_APP_URL.rstrip('/')}/l/{letter.slug}"
                 await SevenService.send_sms(to=request.contact, text=text, delay=request.scheduled_at)
         elif request.method == "call":
             msg = f"Voice call reading queued for '{request.contact or 'recipient'}'."
