@@ -24,7 +24,7 @@ def _strip_libpq_params(url: str) -> str:
 
 
 class Settings(BaseSettings):
-    PROJECT_NAME: str = "LoveAssets API"
+    PROJECT_NAME: str = "Wish2Love API"
     API_V1_STR: str = "/api/v1"
     HOST: str = "0.0.0.0"
     PORT: int = 8000
@@ -32,7 +32,7 @@ class Settings(BaseSettings):
 
     # Database. Accepts a plain postgresql:// URL (what a hosting provider
     # hands you) and adapts it per driver below.
-    DATABASE_URL: str = "sqlite+aiosqlite:///./loveassets.db"
+    DATABASE_URL: str = "sqlite+aiosqlite:///./wish2love.db"
 
     @property
     def async_database_url(self) -> str:
@@ -76,6 +76,41 @@ class Settings(BaseSettings):
     # Public base URL of this API, used to turn stored upload paths into
     # absolute URLs the browser can load cross-origin.
     PUBLIC_API_URL: str = "http://localhost:8000"
+
+    # ---- auth -------------------------------------------------------
+    # Signs access tokens and encrypts stored OAuth tokens. Override in .env;
+    # the default exists only so a fresh checkout boots. Must be >= 32 bytes,
+    # the minimum RFC 7518 gives for an HMAC-SHA256 key.
+    SECRET_KEY: str = "dev-only-insecure-key-change-me-before-deploying-anywhere"
+
+    @field_validator("SECRET_KEY")
+    @classmethod
+    def _secret_long_enough(cls, v: str) -> str:
+        if len(v.encode()) < 32:
+            raise ValueError("SECRET_KEY must be at least 32 bytes (RFC 7518 for HMAC-SHA256)")
+        return v
+    ACCESS_TOKEN_MINUTES: int = 15
+    REFRESH_TOKEN_DAYS: int = 30
+
+    # Cookie flags. SECURE must be on in production (HTTPS only).
+    COOKIE_SECURE: bool = False
+    COOKIE_DOMAIN: str = ""
+    COOKIE_SAMESITE: str = "lax"
+
+    # Google OAuth. Create credentials at console.cloud.google.com and add
+    # <PUBLIC_API_URL>/api/v1/auth/oauth/google/callback as a redirect URI.
+    GOOGLE_CLIENT_ID: str = ""
+    GOOGLE_CLIENT_SECRET: str = ""
+    GITHUB_CLIENT_ID: str = ""
+    GITHUB_CLIENT_SECRET: str = ""
+
+    @property
+    def google_enabled(self) -> bool:
+        return bool(self.GOOGLE_CLIENT_ID and self.GOOGLE_CLIENT_SECRET)
+
+    @property
+    def github_enabled(self) -> bool:
+        return bool(self.GITHUB_CLIENT_ID and self.GITHUB_CLIENT_SECRET)
 
     # Integration
     SEVEN_API_KEY: str = ""

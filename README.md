@@ -1,6 +1,6 @@
-# LoveAssets API - FastAPI Backend
+# Wish2Love API - FastAPI Backend
 
-A production-ready FastAPI backend designed for the **LoveAssets** application. Built with modular Python architecture, Uvicorn, async SQLAlchemy ORM, SQLite database, and local media file management.
+A production-ready FastAPI backend designed for the **Wish2Love** application. Built with modular Python architecture, Uvicorn, async SQLAlchemy ORM, SQLite database, and local media file management.
 
 ---
 

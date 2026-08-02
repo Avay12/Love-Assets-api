@@ -3,3 +3,4 @@ from app.db.models.letter import Letter
 from app.db.models.template import Template
 
 __all__ = ["Base", "Letter", "Template"]
+from app.db.models.user import User, OAuthIdentity, Session  # noqa: F401,E402

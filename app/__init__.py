@@ -1,1 +1,1 @@
-# LoveAssets API Package
+# Wish2Love API Package
