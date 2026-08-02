@@ -1,7 +1,26 @@
 import json
 from typing import List, Union
+from urllib.parse import urlencode, urlsplit, urlunsplit
+
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Query params libpq understands but asyncpg does not.
+_LIBPQ_ONLY = {"sslmode", "sslrootcert", "sslcert", "sslkey", "target_session_attrs", "channel_binding"}
+
+
+def _strip_libpq_params(url: str) -> str:
+    parts = urlsplit(url)
+    if not parts.query:
+        return url
+    kept = [
+        (k, v)
+        for pair in parts.query.split("&")
+        if pair
+        for k, _, v in [pair.partition("=")]
+        if k not in _LIBPQ_ONLY
+    ]
+    return urlunsplit(parts._replace(query=urlencode(kept)))
 
 
 class Settings(BaseSettings):
@@ -11,8 +30,41 @@ class Settings(BaseSettings):
     PORT: int = 8000
     DEBUG: bool = True
 
-    # Database
+    # Database. Accepts a plain postgresql:// URL (what a hosting provider
+    # hands you) and adapts it per driver below.
     DATABASE_URL: str = "sqlite+aiosqlite:///./loveassets.db"
+
+    @property
+    def async_database_url(self) -> str:
+        """URL for the app's async engine.
+
+        asyncpg rejects libpq-style query params such as ``sslmode``; SSL is
+        configured through connect_args instead, so they are stripped here.
+        """
+        url = self.DATABASE_URL
+        if url.startswith("postgresql://"):
+            url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
+        if url.startswith("postgres://"):  # some providers still emit this
+            url = url.replace("postgres://", "postgresql+asyncpg://", 1)
+        return _strip_libpq_params(url) if "asyncpg" in url else url
+
+    @property
+    def sync_database_url(self) -> str:
+        """URL for Alembic, which runs migrations synchronously."""
+        url = self.DATABASE_URL
+        for prefix, repl in (
+            ("postgresql+asyncpg://", "postgresql+psycopg2://"),
+            ("postgresql://", "postgresql+psycopg2://"),
+            ("postgres://", "postgresql+psycopg2://"),
+            ("sqlite+aiosqlite://", "sqlite://"),
+        ):
+            if url.startswith(prefix):
+                return url.replace(prefix, repl, 1)
+        return url
+
+    @property
+    def is_postgres(self) -> bool:
+        return "postgres" in self.DATABASE_URL
 
     # Storage
     UPLOAD_DIR: str = "./uploads"

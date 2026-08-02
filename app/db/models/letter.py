@@ -1,9 +1,14 @@
 from datetime import datetime, timezone
 from typing import List, Optional
 from sqlalchemy import String, Text, DateTime, JSON, Integer
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
+
+# JSONB on Postgres (indexable, binary, no key-order churn); plain JSON on
+# SQLite, which the test suite uses.
+JsonCol = JSON().with_variant(JSONB(), "postgresql")
 
 
 def utc_now() -> datetime:
@@ -26,12 +31,12 @@ class Letter(Base):
     message: Mapped[str] = mapped_column(Text, nullable=False)
     
     # Media & Assets
-    photos: Mapped[Optional[List[str]]] = mapped_column(JSON, default=list)
+    photos: Mapped[Optional[List[str]]] = mapped_column(JsonCol, default=list)
 
     # Type-specific payload (age, event date/venue, gift accounts, ...).
     # Kept as JSON so each letter type can carry its own shape without a table
     # per type; the per-type Pydantic schemas are what actually validate it.
-    details: Mapped[Optional[dict]] = mapped_column(JSON, default=dict)
+    details: Mapped[Optional[dict]] = mapped_column(JsonCol, default=dict)
     
     # Music Track
     song_id: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)

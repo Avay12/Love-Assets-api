@@ -5,18 +5,18 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from app.core.config import settings
-from app.core.database import init_db
+
 from app.api.router import main_router
 from app.utils.storage import ensure_upload_dir_exists
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup actions
     ensure_upload_dir_exists()
-    await init_db()
+    # Schema is owned by Alembic ("alembic upgrade head"), not create_all --
+    # create_all only ever adds missing tables and silently ignores changes to
+    # existing ones, so the first altered column would have gone unnoticed.
     yield
-    # Shutdown actions (if any)
 
 
 app = FastAPI(

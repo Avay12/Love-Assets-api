@@ -4,13 +4,24 @@ from sqlalchemy.orm import DeclarativeBase
 
 from app.core.config import settings
 
-# For SQLite async engine, connect_args check_same_thread is needed
-connect_args = {"check_same_thread": False} if settings.DATABASE_URL.startswith("sqlite") else {}
+def _connect_args() -> dict:
+    if settings.DATABASE_URL.startswith("sqlite"):
+        return {"check_same_thread": False}
+    if settings.is_postgres:
+        # asyncpg takes ssl as a connect arg, not a URL param. The URL's
+        # sslmode is stripped in config; honour "disable" here.
+        return {"ssl": False} if "sslmode=disable" in settings.DATABASE_URL else {}
+    return {}
+
 
 engine = create_async_engine(
-    settings.DATABASE_URL,
+    settings.async_database_url,
     echo=settings.DEBUG,
-    connect_args=connect_args,
+    connect_args=_connect_args(),
+    # A pooled remote database drops idle connections; recycle before it does
+    # and check liveness on checkout so the first request after a lull works.
+    pool_pre_ping=settings.is_postgres,
+    pool_recycle=1800 if settings.is_postgres else -1,
     future=True,
 )
 
