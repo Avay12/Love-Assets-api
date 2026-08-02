@@ -81,12 +81,12 @@ class Settings(BaseSettings):
     # Signs access tokens and encrypts stored OAuth tokens. Override in .env;
     # the default exists only so a fresh checkout boots. Must be >= 32 bytes,
     # the minimum RFC 7518 gives for an HMAC-SHA256 key.
-    SECRET_KEY: str = "dev-only-insecure-key-change-me-before-deploying-anywhere"
+    SECRET_KEY: str = ""
 
     @field_validator("SECRET_KEY")
     @classmethod
     def _secret_long_enough(cls, v: str) -> str:
-        if len(v.encode()) < 32:
+        if v and len(v.encode()) < 32:
             raise ValueError("SECRET_KEY must be at least 32 bytes (RFC 7518 for HMAC-SHA256)")
         return v
     ACCESS_TOKEN_MINUTES: int = 15
@@ -115,8 +115,28 @@ class Settings(BaseSettings):
     # Integration
     SEVEN_API_KEY: str = ""
 
+    # SMTP / Brevo Email Integration
+    SMTP_HOST: str = "smtp-relay.brevo.com"
+    SMTP_PORT: int = 587
+    SMTP_USER: str = ""
+    SMTP_PASSWORD: str = ""
+    MAIL_FROM: str = "Wish2Love <no-reply@wish2love.com>"
+
+    # Captcha / Bot Protection
+    TURNSTILE_SECRET_KEY: str = ""
+
+    @property
+    def turnstile_enabled(self) -> bool:
+        return bool(self.TURNSTILE_SECRET_KEY)
+
     # CORS Configuration
-    CORS_ORIGINS: Union[List[str], str] = ["*"]
+    CORS_ORIGINS: Union[List[str], str] = [
+        "http://localhost:8080",
+        "http://localhost:5173",
+        "http://localhost:3000",
+        "https://wish2luv.com",
+        "https://www.wish2luv.com",
+    ]
 
     @field_validator("CORS_ORIGINS", mode="before")
     @classmethod
@@ -130,7 +150,13 @@ class Settings(BaseSettings):
             return [i.strip() for i in v.split(",") if i.strip()]
         elif isinstance(v, list):
             return v
-        return ["*"]
+        return [
+            "http://localhost:8080",
+            "http://localhost:5173",
+            "http://localhost:3000",
+            "https://wish2luv.com",
+            "https://www.wish2luv.com",
+        ]
 
     model_config = SettingsConfigDict(
         env_file=".env",

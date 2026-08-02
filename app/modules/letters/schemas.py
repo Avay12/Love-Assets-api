@@ -1,28 +1,68 @@
-"""Per-type request/response schemas.
-
-Every letter type shares the same storage row (see ``app.db.models.letter``);
-what differs is the ``details`` payload. Each type below declares its own
-details model so FastAPI validates and documents the right shape per endpoint,
-instead of accepting a free-form blob everywhere.
-"""
-
 from datetime import date, datetime
 from typing import List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-# Canonical type slugs. These match the frontend's create-letter TYPES ids.
 LETTER_TYPES = ("love", "valentine", "birthday", "birthday-invite", "wedding")
 
 
-# --------------------------------------------------------------------------
-# shared pieces
-# --------------------------------------------------------------------------
+class MusicTrackInfo(BaseModel):
+    id: Optional[str] = None
+    title: Optional[str] = None
+    artist: Optional[str] = None
+    preview_url: Optional[str] = None
+
+
+class LetterBase(BaseModel):
+    type: str = Field(default="love", description="Type of letter: 'love' or 'birthday'")
+    template_id: str = Field(default="mailbox", description="Template identifier")
+    from_name: str = Field(..., min_length=1, max_length=128, description="Sender name")
+    to_name: str = Field(..., min_length=1, max_length=128, description="Recipient name")
+    message: str = Field(..., min_length=1, max_length=5000, description="Letter content")
+    photos: List[str] = Field(default_factory=list, description="List of image URLs/paths")
+    song_id: Optional[str] = None
+    song_title: Optional[str] = None
+    song_artist: Optional[str] = None
+    song_preview_url: Optional[str] = None
+    delivery_method: str = Field(default="link", description="Delivery method: link, email, sms, call")
+    delivery_contact: Optional[str] = Field(default=None, description="Target email or phone number")
+    scheduled_at: Optional[datetime] = None
+
+
+class LetterCreate(LetterBase):
+    pass
+
+
+class LetterUpdate(BaseModel):
+    from_name: Optional[str] = None
+    to_name: Optional[str] = None
+    message: Optional[str] = None
+    template_id: Optional[str] = None
+    photos: Optional[List[str]] = None
+    song_id: Optional[str] = None
+    song_title: Optional[str] = None
+    song_artist: Optional[str] = None
+    song_preview_url: Optional[str] = None
+    delivery_method: Optional[str] = None
+    delivery_contact: Optional[str] = None
+    scheduled_at: Optional[datetime] = None
+
+
+class LetterResponse(LetterBase):
+    id: int
+    slug: str
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class LetterListResponse(BaseModel):
+    total: int
+    letters: List[LetterResponse]
 
 
 class LetterCommon(BaseModel):
-    """Fields every letter type accepts."""
-
     template_id: str = Field(default="mailbox", max_length=64)
     from_name: str = Field(..., min_length=1, max_length=128)
     to_name: str = Field(..., min_length=1, max_length=128)
@@ -57,31 +97,17 @@ class StoryChapter(BaseModel):
     body: str = Field(..., max_length=2000)
 
 
-# --------------------------------------------------------------------------
-# per-type details
-# --------------------------------------------------------------------------
-
-
 class LoveDetails(BaseModel):
-    """Love letters carry no extra data beyond the shared fields."""
-
     model_config = ConfigDict(extra="forbid")
 
 
 class ValentineDetails(BaseModel):
     model_config = ConfigDict(extra="forbid")
-
     rsvp_enabled: bool = True
     date_night: Optional[str] = Field(default=None, max_length=200)
 
 
 def turning_age_from(birth_date: Optional[date], event_date: Optional[date]) -> Optional[int]:
-    """Age the celebrant reaches on the event date.
-
-    Derived here and never accepted from the client. The subtraction after the
-    tuple comparison is what handles a birthday that has not yet occurred in
-    the event year.
-    """
     if not birth_date:
         return None
     on = event_date or date.today()
@@ -89,8 +115,6 @@ def turning_age_from(birth_date: Optional[date], event_date: Optional[date]) -> 
 
 
 class _CelebrantMixin(BaseModel):
-    """Shared birthday fields. ``turning_age`` is computed, not supplied."""
-
     celebrant_name: Optional[str] = Field(default=None, max_length=128)
     birth_date: Optional[date] = None
     age: Optional[str] = Field(
@@ -102,7 +126,6 @@ class _CelebrantMixin(BaseModel):
     def _derive_turning_age(self):
         event_on = getattr(self, "event_at", None)
         derived = turning_age_from(self.birth_date, event_on.date() if event_on else None)
-        # Always overwrite: a client-supplied turning_age must never survive.
         object.__setattr__(self, "turning_age", derived)
         if derived is not None and not self.age:
             object.__setattr__(self, "age", str(derived))
@@ -123,7 +146,6 @@ class BirthdayInviteDetails(_CelebrantMixin):
     time_line: Optional[str] = Field(default=None, max_length=60, description="e.g. '17.00 WIB'")
     venue: Optional[Venue] = None
 
-    # Whoever is taking attendance on the day.
     attendance_manager: Optional[str] = Field(default=None, max_length=128)
     attendance_manager_contact: Optional[str] = Field(default=None, max_length=128)
 
@@ -159,11 +181,6 @@ class WeddingDetails(BaseModel):
     story: List[StoryChapter] = Field(default_factory=list, max_length=6)
 
 
-# --------------------------------------------------------------------------
-# per-type create payloads
-# --------------------------------------------------------------------------
-
-
 class LoveLetterCreate(LetterCommon):
     details: LoveDetails = Field(default_factory=LoveDetails)
 
@@ -184,14 +201,7 @@ class WeddingInviteCreate(LetterCommon):
     details: WeddingDetails = Field(default_factory=WeddingDetails)
 
 
-# --------------------------------------------------------------------------
-# response
-# --------------------------------------------------------------------------
-
-
 class TypedLetterResponse(LetterCommon):
-    """One response shape for every type; ``details`` holds the type payload."""
-
     id: int
     slug: str
     type: str

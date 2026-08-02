@@ -2,8 +2,8 @@ from fastapi import APIRouter, Depends, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.schemas.delivery import DeliveryRequest, DeliveryResponse
-from app.services.delivery_service import DeliveryService
+from app.modules.delivery.schemas import DeliveryRequest, DeliveryResponse
+from app.modules.delivery.service import DeliveryService
 
 router = APIRouter()
 

@@ -1,8 +1,8 @@
 from typing import List, Optional
 from fastapi import APIRouter, Query
 
-from app.schemas.music import TrackResult, MusicSearchResponse
-from app.services.music_service import MusicService
+from app.modules.music.schemas import TrackResult, MusicSearchResponse
+from app.modules.music.service import MusicService
 
 router = APIRouter()
 

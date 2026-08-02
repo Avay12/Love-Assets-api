@@ -1,5 +1,5 @@
 from typing import List
-from app.schemas.music import TrackResult
+from app.modules.music.schemas import TrackResult
 
 FEATURED_TRACKS = [
     TrackResult(

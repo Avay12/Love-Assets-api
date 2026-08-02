@@ -1,6 +1,6 @@
 from app.core.database import Base
-from app.db.models.letter import Letter
-from app.db.models.template import Template
+from app.modules.auth.models import User, OAuthIdentity, Session
+from app.modules.letters.models import Letter
+from app.modules.templates.models import Template
 
-__all__ = ["Base", "Letter", "Template"]
-from app.db.models.user import User, OAuthIdentity, Session  # noqa: F401,E402
+__all__ = ["Base", "User", "OAuthIdentity", "Session", "Letter", "Template"]

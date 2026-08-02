@@ -2,8 +2,8 @@ from typing import List, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
-from app.db.models.template import Template
-from app.schemas.template import TemplateResponse
+from app.modules.templates.models import Template
+from app.modules.templates.schemas import TemplateResponse
 
 DEFAULT_TEMPLATES = [
     {

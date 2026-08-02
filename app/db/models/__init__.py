@@ -1,4 +1,7 @@
-from app.db.models.letter import Letter
-from app.db.models.template import Template
+"""Backwards-compatibility shim re-exporting models from domain modules."""
 
-__all__ = ["Letter", "Template"]
+from app.modules.auth.models import OAuthIdentity, Session, User
+from app.modules.letters.models import Letter
+from app.modules.templates.models import Template
+
+__all__ = ["User", "OAuthIdentity", "Session", "Letter", "Template"]

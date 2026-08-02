@@ -3,13 +3,14 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.schemas.template import TemplateResponse, TemplateListResponse
-from app.services.template_service import TemplateService
+from app.modules.templates.schemas import TemplateResponse, TemplateListResponse
+from app.modules.templates.service import TemplateService
 
 router = APIRouter()
 
 
-@router.get("/", response_model=TemplateListResponse, summary="List letter templates")
+@router.get("", response_model=TemplateListResponse, summary="List letter templates")
+@router.get("/", response_model=TemplateListResponse, include_in_schema=False)
 async def list_templates(
     type: Optional[str] = Query(None, description="Filter templates by type ('love' or 'birthday')"),
     db: AsyncSession = Depends(get_db)

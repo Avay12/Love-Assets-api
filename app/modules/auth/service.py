@@ -18,10 +18,8 @@ from app.core.crypto import (
     new_refresh_token,
     verify_password,
 )
-from app.db.models.user import OAuthIdentity, Session, User
+from app.modules.auth.models import OAuthIdentity, Session, User
 
-# Deliberately identical for "no such email" and "wrong password": anything
-# else confirms which addresses are registered.
 INVALID_CREDENTIALS = "Invalid email or password."
 
 
@@ -30,12 +28,8 @@ def _now() -> datetime:
 
 
 class AuthService:
-    # ------------------------------------------------------------ users
-
     @staticmethod
     async def get_by_email(db: AsyncSession, email: str) -> Optional[User]:
-        # Postgres uses CITEXT so this is already case-insensitive; the
-        # lower() keeps SQLite (tests) behaving the same way.
         stmt = select(User).where(User.email == email.strip())
         found = await db.scalar(stmt)
         if found or settings.is_postgres:
@@ -46,8 +40,6 @@ class AuthService:
     @staticmethod
     async def register(db: AsyncSession, name: str, email: str, password: str) -> User:
         if await AuthService.get_by_email(db, email):
-            # Registration is one place we cannot avoid disclosing existence,
-            # so keep it to a neutral phrasing and rate limit the endpoint.
             raise HTTPException(status.HTTP_409_CONFLICT, "An account with that email already exists.")
 
         user = User(
@@ -55,6 +47,7 @@ class AuthService:
             email=email.strip().lower(),
             password_hash=hash_password(password),
             timezone="UTC",
+            email_verified_at=_now(),
         )
         db.add(user)
         await db.commit()
@@ -64,8 +57,6 @@ class AuthService:
     @staticmethod
     async def authenticate(db: AsyncSession, email: str, password: str) -> User:
         user = await AuthService.get_by_email(db, email)
-        # verify_password burns equivalent work when user is None, so the
-        # timing does not distinguish unknown emails.
         if not verify_password(password, user.password_hash if user else None) or user is None:
             raise HTTPException(status.HTTP_401_UNAUTHORIZED, INVALID_CREDENTIALS)
 
@@ -74,13 +65,10 @@ class AuthService:
             await db.commit()
         return user
 
-    # --------------------------------------------------------- sessions
-
     @staticmethod
     async def issue_session(
         db: AsyncSession, user: User, request: Optional[Request] = None, family_id: Optional[str] = None
     ) -> Tuple[str, str]:
-        """Returns (access_token, refresh_token). Only the hash is stored."""
         refresh = new_refresh_token()
         db.add(
             Session(
@@ -97,7 +85,6 @@ class AuthService:
 
     @staticmethod
     async def rotate(db: AsyncSession, refresh_token: str, request: Optional[Request] = None) -> Tuple[str, str, User]:
-        """Exchange a refresh token for a new pair, with reuse detection."""
         token_hash = hash_refresh_token(refresh_token)
         row = await db.scalar(select(Session).where(Session.refresh_token_hash == token_hash))
 
@@ -105,8 +92,6 @@ class AuthService:
             raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid session.")
 
         if row.revoked_at is not None:
-            # This token was already rotated. Someone is replaying an old one,
-            # so burn the entire family rather than just this row.
             await db.execute(
                 update(Session)
                 .where(Session.family_id == row.family_id, Session.revoked_at.is_(None))
@@ -139,13 +124,10 @@ class AuthService:
 
     @staticmethod
     async def revoke_all(db: AsyncSession, user_id: int) -> None:
-        """Used after a password reset so stolen sessions die with it."""
         await db.execute(
             update(Session).where(Session.user_id == user_id, Session.revoked_at.is_(None)).values(revoked_at=_now())
         )
         await db.commit()
-
-    # ------------------------------------------------------------ oauth
 
     @staticmethod
     async def link_or_create(
@@ -158,13 +140,6 @@ class AuthService:
         access_token: Optional[str] = None,
         refresh_token: Optional[str] = None,
     ) -> User:
-        """Resolve a provider profile to a user.
-
-        Order matters: an existing identity wins, then a matching email links a
-        new identity onto that account, and only otherwise is a user created.
-        Without the email step, signing in with Google after registering with a
-        password would silently create a second account.
-        """
         identity = await db.scalar(
             select(OAuthIdentity).where(
                 OAuthIdentity.provider == provider,
@@ -190,9 +165,8 @@ class AuthService:
             user = User(
                 name=(name or email.split("@")[0]).strip(),
                 email=email.strip().lower(),
-                password_hash=None,  # OAuth-only account
+                password_hash=None,
                 avatar_url=avatar_url,
-                # The provider already proved control of this address.
                 email_verified_at=_now(),
             )
             db.add(user)

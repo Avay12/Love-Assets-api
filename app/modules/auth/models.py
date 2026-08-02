@@ -7,8 +7,6 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
 
-# Case-insensitive email on Postgres so Alex@x.com and alex@x.com are one
-# account; plain string on SQLite, where the test suite lowercases instead.
 EmailCol = String(320).with_variant(CITEXT(), "postgresql")
 
 
@@ -20,16 +18,9 @@ class User(Base):
     email: Mapped[str] = mapped_column(EmailCol, unique=True, nullable=False, index=True)
     email_verified_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
-    # Null for accounts that only ever signed in through an OAuth provider.
     password_hash: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
-
     avatar_url: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
     timezone: Mapped[str] = mapped_column(String(64), default="UTC", nullable=False)
-
-    # "user" or "admin". Deliberately not settable through any public
-    # endpoint -- registration always writes "user", and promotion happens
-    # out of band (scripts/make_admin.py). A self-service role field would be
-    # a straight privilege-escalation hole.
     role: Mapped[str] = mapped_column(String(16), default="user", server_default="user", nullable=False)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
@@ -46,12 +37,6 @@ class User(Base):
 
 
 class OAuthIdentity(Base):
-    """One row per (provider, account) pair linked to a user.
-
-    Keeping identities in their own table is what allows a Google sign-in to
-    attach to an existing password account instead of creating a duplicate.
-    """
-
     __tablename__ = "oauth_identities"
     __table_args__ = (UniqueConstraint("provider", "provider_account_id", name="uq_oauth_provider_account"),)
 
@@ -61,7 +46,6 @@ class OAuthIdentity(Base):
     provider: Mapped[str] = mapped_column(String(32), nullable=False)
     provider_account_id: Mapped[str] = mapped_column(String(191), nullable=False)
 
-    # Encrypted at rest; see app.core.crypto.
     access_token: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     refresh_token: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -72,20 +56,12 @@ class OAuthIdentity(Base):
 
 
 class Session(Base):
-    """A refresh-token family.
-
-    Each refresh rotates the token and keeps family_id. If a token that has
-    already been rotated is presented again, the whole family is revoked --
-    that is the stolen-token signal.
-    """
-
     __tablename__ = "sessions"
     __table_args__ = (Index("ix_sessions_user_active", "user_id", "revoked_at"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
 
-    # sha256 of the refresh token; the raw value only ever lives in the cookie.
     refresh_token_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True, index=True)
     family_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
 

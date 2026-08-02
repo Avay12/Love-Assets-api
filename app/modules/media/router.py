@@ -1,5 +1,5 @@
 from fastapi import APIRouter, UploadFile, File, status
-from app.schemas.media import FileUploadResponse
+from app.modules.media.schemas import FileUploadResponse
 from app.utils.storage import save_uploaded_file
 
 router = APIRouter()

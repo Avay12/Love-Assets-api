@@ -1,4 +1,4 @@
-"""Authentication: email/password, sessions, and OAuth (Google, GitHub)."""
+"""Authentication endpoints: email/password, sessions, and OAuth."""
 
 import base64
 import hashlib
@@ -13,7 +13,10 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.responses import RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import (
+from app.core.config import settings
+from app.core.crypto import hash_password, read_purpose_token, sign_purpose_token
+from app.core.database import get_db
+from app.core.deps import (
     ACCESS_COOKIE,
     REFRESH_COOKIE,
     RateLimiter,
@@ -21,11 +24,8 @@ from app.api.deps import (
     current_user,
     set_auth_cookies,
 )
-from app.core.config import settings
-from app.core.crypto import hash_password, read_purpose_token, sign_purpose_token
-from app.core.database import get_db
-from app.db.models.user import User
-from app.schemas.auth import (
+from app.modules.auth.models import User
+from app.modules.auth.schemas import (
     AuthResponse,
     ForgotPasswordRequest,
     LoginRequest,
@@ -34,7 +34,7 @@ from app.schemas.auth import (
     UserResponse,
     VerifyEmailRequest,
 )
-from app.services.auth_service import AuthService
+from app.modules.auth.service import AuthService
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -54,8 +54,6 @@ PROVIDERS = {
     },
 }
 
-# state -> (code_verifier, return_to). Single-process, like the rate limiter;
-# move to Redis alongside it. Entries are consumed on callback.
 _pending: dict[str, tuple[str, str]] = {}
 
 
@@ -87,9 +85,6 @@ async def _respond_with_session(
     )
 
 
-# ------------------------------------------------------ email + password
-
-
 @router.post(
     "/register",
     response_model=AuthResponse,
@@ -101,9 +96,6 @@ async def register(
     data: RegisterRequest, request: Request, response: Response, db: AsyncSession = Depends(get_db)
 ):
     user = await AuthService.register(db, data.name, data.email, data.password)
-    token = sign_purpose_token("verify-email", str(user.id), minutes=60 * 24)
-    # No mail provider is wired up yet, so the link is logged rather than sent.
-    logger.info("Email verification link for %s: %s/verify-email?token=%s", user.email, settings.PUBLIC_APP_URL, token)
     return await _respond_with_session(db, user, request, response)
 
 
@@ -124,7 +116,6 @@ async def login(
 async def logout(request: Request, response: Response, db: AsyncSession = Depends(get_db)):
     token = request.cookies.get(REFRESH_COOKIE)
     if token:
-        # Revoked server-side, not just cleared client-side.
         await AuthService.revoke(db, token)
     clear_auth_cookies(response)
     return None
@@ -158,7 +149,6 @@ async def forgot_password(data: ForgotPasswordRequest, db: AsyncSession = Depend
     if user:
         token = sign_purpose_token("reset-password", str(user.id), minutes=30)
         logger.info("Password reset link for %s: %s/reset-password?token=%s", user.email, settings.PUBLIC_APP_URL, token)
-    # Always the same reply: a different one would confirm the address exists.
     return {"message": "If that email is registered, a reset link is on its way."}
 
 
@@ -173,7 +163,6 @@ async def reset_password(data: ResetPasswordRequest, response: Response, db: Asy
 
     user.password_hash = hash_password(data.password)
     await db.commit()
-    # Anyone holding a stolen session loses it here.
     await AuthService.revoke_all(db, user.id)
     clear_auth_cookies(response)
     return None
@@ -193,9 +182,6 @@ async def verify_email(data: VerifyEmailRequest, db: AsyncSession = Depends(get_
     return None
 
 
-# ------------------------------------------------------------------ oauth
-
-
 def _provider_or_404(provider: str) -> dict:
     if provider not in PROVIDERS:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"Unknown provider '{provider}'.")
@@ -213,7 +199,6 @@ def _redirect_uri(provider: str) -> str:
 
 
 def _safe_return_to(value: Optional[str]) -> str:
-    """Only same-site paths. An absolute URL here would be an open redirect."""
     if value and value.startswith("/") and not value.startswith("//"):
         return value
     return "/my-letters"
@@ -236,7 +221,6 @@ async def oauth_start(provider: str, return_to: Optional[str] = None):
         "state": state,
     }
     if provider == "google":
-        # Authorization Code + PKCE. No implicit flow.
         params |= {
             "code_challenge": challenge,
             "code_challenge_method": "S256",
@@ -264,7 +248,6 @@ async def oauth_callback(
     if error or not code or not state:
         return fail("oauth_cancelled")
 
-    # Consumed here, so a replayed state cannot be reused.
     pending = _pending.pop(state, None)
     if pending is None:
         return fail("bad_state")
@@ -297,7 +280,6 @@ async def oauth_callback(
 
             email = profile.get("email")
             if provider == "github" and not email:
-                # GitHub omits a private email from /user; ask explicitly.
                 emails = (await client.get(
                     "https://api.github.com/user/emails",
                     headers={"Authorization": f"Bearer {access}", "Accept": "application/json"},
@@ -327,7 +309,10 @@ async def oauth_callback(
         return fail("link_failed")
 
     access_token, refresh_token = await AuthService.issue_session(db, user, request)
-    redirect = RedirectResponse(f"{app_url}{return_to}", status_code=302)
+    target = f"{app_url}/oauth/{provider}/callback"
+    if return_to and return_to != "/my-letters":
+        target += f"?returnTo={urlencode({'returnTo': return_to})[9:]}"
+    redirect = RedirectResponse(target, status_code=302)
     set_auth_cookies(redirect, access_token, refresh_token)
     return redirect
 

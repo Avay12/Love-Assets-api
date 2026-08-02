@@ -1,11 +1,13 @@
-import httpx
+import logging
 from datetime import datetime
 from typing import Optional
-import logging
+
+import httpx
 
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
+
 
 class SevenService:
     BASE_URL = "https://gateway.seven.io/api"
@@ -38,23 +40,14 @@ class SevenService:
 
     @classmethod
     async def send_sms(cls, to: str, text: str, delay: Optional[datetime] = None) -> bool:
-        payload = {
-            "to": to,
-            "text": text
-        }
+        payload = {"to": to, "text": text}
         if delay:
-            # Seven.io accepts timestamp (UNIX) or YYYY-MM-DD HH:mm:ss string for delay
             payload["delay"] = delay.strftime("%Y-%m-%d %H:%M:%S")
-
         return await cls._send_request("sms", payload)
 
     @classmethod
     async def send_voice(cls, to: str, text: str, delay: Optional[datetime] = None) -> bool:
-        payload = {
-            "to": to,
-            "text": text
-        }
+        payload = {"to": to, "text": text}
         if delay:
             payload["delay"] = delay.strftime("%Y-%m-%d %H:%M:%S")
-
         return await cls._send_request("voice", payload)

@@ -1,0 +1,139 @@
+name: Deploy FastAPI Backend to Contabo VPS
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    name: Build and Deploy FastAPI to Production
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies locally (Validation)
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Prepare deployment bundle
+        # Inject production environment variables from GitHub Secrets
+        env:
+          ENV_FILE: ${{ secrets.ENV_FILE }}
+        run: |
+          mkdir -p deploy
+          
+          if [ -z "$ENV_FILE" ]; then
+            echo "❌ Error: ENV_FILE secret is empty or not set in GitHub Repository Secrets!"
+            exit 1
+          fi
+
+          echo "✅ Injecting ENV_FILE..."
+          echo "$ENV_FILE" > deploy/.env
+
+          # Copy essential backend files for production
+          cp -r app migrations alembic.ini requirements.txt run.py deploy/
+
+      - name: Backup current app on VPS
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USERNAME }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            timestamp=$(date +%Y%m%d_%H%M%S)
+            BACKUP_DIR="/root/wish2luv-api_backup_$timestamp"
+            if [ -d /root/wish2luv-api ]; then
+              cp -r /root/wish2luv-api $BACKUP_DIR
+              echo "✅ Backup created at $BACKUP_DIR"
+            fi
+
+            # Cleanup: Keep only the 3 most recent backups
+            echo "🧹 Cleaning up old backups..."
+            ls -dt /root/wish2luv-api_backup_* 2>/dev/null | tail -n +4 | xargs -r rm -rf -- || echo "No old backups to clean."
+
+      - name: Copy bundle to VPS
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USERNAME }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          source: 'deploy/*,deploy/.env'
+          target: '/root/wish2luv-api'
+          strip_components: 1
+          overwrite: true
+
+      - name: Production Launch and Health Check
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USERNAME }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            set -e
+            cd /root/wish2luv-api
+
+            echo "Checking .env file..."
+            if [ -f .env ]; then
+              echo "✅ .env file exists."
+              if grep -q "SECRET_KEY" .env; then
+                echo "✅ SECRET_KEY found in .env"
+              else
+                echo "❌ SECRET_KEY missing from .env"
+                exit 1
+              fi
+            else
+              echo "❌ .env file missing!"
+              exit 1
+            fi
+
+            echo "Ensuring uploads directory exists..."
+            mkdir -p uploads
+
+            echo "Setting up Python Virtual Environment..."
+            if [ ! -d "venv" ]; then
+              python3 -m venv venv
+            fi
+            ./venv/bin/pip install --upgrade pip
+            ./venv/bin/pip install -r requirements.txt
+
+            echo "Syncing Database schema via Alembic..."
+            ./venv/bin/alembic upgrade head || echo "Alembic migration warning ignored if db up to date."
+
+            echo "Restarting PM2 process for FastAPI..."
+            pm2 describe wish2luv-api > /dev/null && pm2 restart wish2luv-api || pm2 start "./venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000" --name wish2luv-api
+            pm2 save
+
+            echo "Waiting for FastAPI service to boot..."
+            sleep 10
+
+            echo "Running API health check..."
+            echo "Testing URL: http://127.0.0.1:8000/api/v1/health"
+            if curl -v http://127.0.0.1:8000/api/v1/health; then
+              echo "🚀 wish2luv-api deployed successfully!"
+            else
+              echo "❌ Health check failed. Rolling back..."
+              echo "🔍 PM2 Logs for debugging:"
+              pm2 logs wish2luv-api --lines 50 --nostream
+              
+              latest_backup=$(ls -td /root/wish2luv-api_backup_* 2>/dev/null | head -1)
+              if [ -d "$latest_backup" ]; then
+                rm -rf /root/wish2luv-api/*
+                cp -r "$latest_backup"/* /root/wish2luv-api/
+                pm2 restart wish2luv-api
+                echo "Rollback complete. App restored to previous version."
+              else
+                echo "No backup found for rollback!"
+              fi
+              exit 1
+            fi

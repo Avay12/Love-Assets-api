@@ -1,11 +1,10 @@
-from typing import Optional
-from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import HTTPException, status
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.services.letter_service import LetterService
-from app.schemas.delivery import DeliveryRequest, DeliveryResponse
 from app.core.config import settings
-from app.services.seven_service import SevenService
+from app.modules.delivery.schemas import DeliveryRequest, DeliveryResponse
+from app.modules.delivery.seven_service import SevenService
+from app.modules.letters.service import LetterService
 
 
 class DeliveryService:
@@ -18,7 +17,6 @@ class DeliveryService:
                 detail=f"Letter with slug '{request.letter_slug}' not found"
             )
 
-        # Update delivery method & contact info on letter model
         letter.delivery_method = request.method
         if request.contact:
             letter.delivery_contact = request.contact
@@ -27,7 +25,6 @@ class DeliveryService:
 
         await db.commit()
 
-        # Build feedback message
         if request.method == "link":
             msg = f"Private link ready for letter '{letter.slug}'."
         elif request.method == "email":

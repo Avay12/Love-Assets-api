@@ -1,24 +1,22 @@
-"""Creation and lookup for the five letter types.
-
-All types persist to the same ``letters`` row; the per-type payload lives in
-``Letter.details``. Keeping one table avoids five near-identical schemas while
-the per-type Pydantic models still enforce the right shape at the edge.
-"""
-
+import random
 import secrets
 import string
 from typing import List, Optional, Tuple
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.db.models.letter import Letter
-from app.schemas.letter_types import LetterCommon, TypedLetterResponse
-from app.services.seven_service import SevenService
+from app.modules.delivery.seven_service import SevenService
+from app.modules.letters.models import Letter
+from app.modules.letters.schemas import (
+    LetterCommon,
+    LetterCreate,
+    LetterUpdate,
+    TypedLetterResponse,
+)
 
-# Slug prefix per type, so a link hints at what it opens.
 SLUG_PREFIX = {
     "love": "love",
     "valentine": "val",
@@ -30,13 +28,7 @@ SLUG_PREFIX = {
 _ALPHABET = string.ascii_lowercase + string.digits
 
 
-def generate_slug(letter_type: str, length: int = 10) -> str:
-    """Unguessable slug.
-
-    The slug is the only thing protecting a letter, so this uses ``secrets``
-    rather than ``random`` (Mersenne Twister is predictable from prior output),
-    and 10 chars over 36 symbols instead of 6.
-    """
+def generate_slug(letter_type: str = "love", length: int = 10) -> str:
     prefix = SLUG_PREFIX.get(letter_type, "love")
     body = "".join(secrets.choice(_ALPHABET) for _ in range(length))
     return f"{prefix}-{body}"
@@ -71,12 +63,102 @@ def to_response(letter: Letter) -> TypedLetterResponse:
     )
 
 
+class LetterService:
+    @staticmethod
+    async def create_letter(db: AsyncSession, data: LetterCreate) -> Letter:
+        slug_prefix = "birthday" if data.type == "birthday" else "love"
+        slug = generate_slug(slug_prefix)
+
+        existing = await db.scalar(select(Letter).where(Letter.slug == slug))
+        while existing:
+            slug = generate_slug(slug_prefix)
+            existing = await db.scalar(select(Letter).where(Letter.slug == slug))
+
+        letter = Letter(
+            slug=slug,
+            type=data.type,
+            template_id=data.template_id,
+            from_name=data.from_name,
+            to_name=data.to_name,
+            message=data.message,
+            photos=data.photos,
+            song_id=data.song_id,
+            song_title=data.song_title,
+            song_artist=data.song_artist,
+            song_preview_url=data.song_preview_url,
+            delivery_method=data.delivery_method,
+            delivery_contact=data.delivery_contact,
+            scheduled_at=data.scheduled_at,
+        )
+
+        db.add(letter)
+        await db.commit()
+        await db.refresh(letter)
+
+        if data.delivery_method == "sms" and data.delivery_contact:
+            text = f"You received a {data.type} letter from {data.from_name}! View it here: {settings.PUBLIC_APP_URL.rstrip('/')}/l/{letter.slug}"
+            await SevenService.send_sms(to=data.delivery_contact, text=text, delay=data.scheduled_at)
+        elif data.delivery_method == "call" and data.delivery_contact:
+            text = f"Hello {data.to_name}, you have a new {data.type} letter from {data.from_name}."
+            await SevenService.send_voice(to=data.delivery_contact, text=text, delay=data.scheduled_at)
+
+        return letter
+
+    @staticmethod
+    async def get_letter_by_slug(db: AsyncSession, slug: str) -> Optional[Letter]:
+        result = await db.execute(select(Letter).where(Letter.slug == slug))
+        return result.scalar_one_or_none()
+
+    @staticmethod
+    async def get_letter_by_id(db: AsyncSession, letter_id: int) -> Optional[Letter]:
+        result = await db.execute(select(Letter).where(Letter.id == letter_id))
+        return result.scalar_one_or_none()
+
+    @staticmethod
+    async def list_letters(
+        db: AsyncSession, skip: int = 0, limit: int = 20, type_filter: Optional[str] = None
+    ) -> Tuple[List[Letter], int]:
+        query = select(Letter)
+        count_query = select(func.count()).select_from(Letter)
+
+        if type_filter:
+            query = query.where(Letter.type == type_filter)
+            count_query = count_query.where(Letter.type == type_filter)
+
+        total = (await db.execute(count_query)).scalar() or 0
+        result = await db.execute(query.order_by(Letter.created_at.desc()).offset(skip).limit(limit))
+        letters = result.scalars().all()
+        return list(letters), total
+
+    @staticmethod
+    async def update_letter(db: AsyncSession, slug: str, data: LetterUpdate) -> Optional[Letter]:
+        letter = await LetterService.get_letter_by_slug(db, slug)
+        if not letter:
+            return None
+
+        update_data = data.model_dump(exclude_unset=True)
+        for key, value in update_data.items():
+            setattr(letter, key, value)
+
+        await db.commit()
+        await db.refresh(letter)
+        return letter
+
+    @staticmethod
+    async def delete_letter(db: AsyncSession, slug: str) -> bool:
+        letter = await LetterService.get_letter_by_slug(db, slug)
+        if not letter:
+            return False
+        await db.delete(letter)
+        await db.commit()
+        return True
+
+
 class TypedLetterService:
     @staticmethod
     async def create(db: AsyncSession, letter_type: str, data: LetterCommon) -> TypedLetterResponse:
         details = data.details.model_dump(mode="json", exclude_none=True) if hasattr(data, "details") else {}
         if data.artwork:
-            # underscore-prefixed keys are internal and stripped from responses
             details["_artwork"] = data.artwork
 
         letter = Letter(
@@ -97,8 +179,6 @@ class TypedLetterService:
             scheduled_at=data.scheduled_at,
         )
 
-        # Retry on the unique constraint rather than SELECT-then-INSERT, which
-        # is a race under concurrency.
         for attempt in range(5):
             try:
                 db.add(letter)

@@ -4,8 +4,6 @@ from typing import Optional
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
-# Enforced identically on the client (see the frontend's password rules) so the
-# two never disagree about what is acceptable.
 PASSWORD_MIN = 8
 
 
@@ -64,9 +62,6 @@ class UserResponse(BaseModel):
 
 
 class AuthResponse(BaseModel):
-    """The access token is returned for non-browser clients; browsers get it
-    in an HTTP-only cookie and can ignore this field."""
-
     user: UserResponse
     access_token: str
     token_type: str = "bearer"
