@@ -6,10 +6,10 @@ details model so FastAPI validates and documents the right shape per endpoint,
 instead of accepting a free-form blob everywhere.
 """
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import List, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 # Canonical type slugs. These match the frontend's create-letter TYPES ids.
 LETTER_TYPES = ("love", "valentine", "birthday", "birthday-invite", "wedding")
@@ -75,25 +75,71 @@ class ValentineDetails(BaseModel):
     date_night: Optional[str] = Field(default=None, max_length=200)
 
 
-class BirthdayDetails(BaseModel):
+def turning_age_from(birth_date: Optional[date], event_date: Optional[date]) -> Optional[int]:
+    """Age the celebrant reaches on the event date.
+
+    Derived here and never accepted from the client. The subtraction after the
+    tuple comparison is what handles a birthday that has not yet occurred in
+    the event year.
+    """
+    if not birth_date:
+        return None
+    on = event_date or date.today()
+    return on.year - birth_date.year - ((on.month, on.day) < (birth_date.month, birth_date.day))
+
+
+class _CelebrantMixin(BaseModel):
+    """Shared birthday fields. ``turning_age`` is computed, not supplied."""
+
+    celebrant_name: Optional[str] = Field(default=None, max_length=128)
+    birth_date: Optional[date] = None
+    age: Optional[str] = Field(
+        default=None, max_length=8, description="Free-text age, used when no birth_date is given"
+    )
+    turning_age: Optional[int] = Field(default=None, description="Server-derived; any client value is discarded")
+
+    @model_validator(mode="after")
+    def _derive_turning_age(self):
+        event_on = getattr(self, "event_at", None)
+        derived = turning_age_from(self.birth_date, event_on.date() if event_on else None)
+        # Always overwrite: a client-supplied turning_age must never survive.
+        object.__setattr__(self, "turning_age", derived)
+        if derived is not None and not self.age:
+            object.__setattr__(self, "age", str(derived))
+        return self
+
+
+class BirthdayDetails(_CelebrantMixin):
     model_config = ConfigDict(extra="forbid")
 
-    age: Optional[str] = Field(default=None, max_length=8)
 
-
-class BirthdayInviteDetails(BaseModel):
+class BirthdayInviteDetails(_CelebrantMixin):
     model_config = ConfigDict(extra="forbid")
 
-    age: Optional[str] = Field(default=None, max_length=8)
     event_at: Optional[datetime] = Field(
         default=None, description="Party start. Send with an explicit UTC offset."
     )
     date_line: Optional[str] = Field(default=None, max_length=120, description="e.g. 'Saturday, 8 August 2026'")
     time_line: Optional[str] = Field(default=None, max_length=60, description="e.g. '17.00 WIB'")
     venue: Optional[Venue] = None
+
+    # Whoever is taking attendance on the day.
+    attendance_manager: Optional[str] = Field(default=None, max_length=128)
+    attendance_manager_contact: Optional[str] = Field(default=None, max_length=128)
+
+    rsvp_enabled: bool = True
+    rsvp_deadline: Optional[date] = None
+
+    dress_code: Optional[str] = Field(default=None, max_length=200)
     quote: Optional[str] = Field(default=None, max_length=600)
     quote_author: Optional[str] = Field(default=None, max_length=120)
     story: Optional[str] = Field(default=None, max_length=4000)
+
+    @model_validator(mode="after")
+    def _rsvp_deadline_before_event(self):
+        if self.rsvp_deadline and self.event_at and self.rsvp_deadline > self.event_at.date():
+            raise ValueError("rsvp_deadline must be on or before the event date")
+        return self
 
 
 class WeddingDetails(BaseModel):
