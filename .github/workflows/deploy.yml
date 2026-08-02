@@ -101,7 +101,9 @@ jobs:
             mkdir -p uploads
 
             echo "Setting up Python Virtual Environment..."
-            if [ ! -d "venv" ]; then
+            if [ ! -f "venv/bin/activate" ]; then
+              rm -rf venv
+              sudo apt-get update && sudo apt-get install -y python3-venv python3-pip || true
               python3 -m venv venv
             fi
             ./venv/bin/pip install --upgrade pip
