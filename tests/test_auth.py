@@ -243,7 +243,7 @@ async def test_oauth_links_to_an_existing_password_account(client):
     account, not silently create a duplicate."""
     from app.core.database import get_db
     from app.main import app
-    from app.services.auth_service import AuthService
+    from app.modules.auth.service import AuthService
 
     uid = (await register(client)).json()["user"]["id"]
 
@@ -265,7 +265,7 @@ async def test_oauth_links_to_an_existing_password_account(client):
 async def test_oauth_only_account_has_no_password(client):
     from app.core.database import get_db
     from app.main import app
-    from app.services.auth_service import AuthService
+    from app.modules.auth.service import AuthService
 
     db = await anext(app.dependency_overrides[get_db]())
     user = await AuthService.link_or_create(
@@ -284,7 +284,7 @@ async def test_stored_oauth_tokens_are_encrypted(client):
     from app.core.crypto import decrypt
     from app.core.database import get_db
     from app.main import app
-    from app.services.auth_service import AuthService
+    from app.modules.auth.service import AuthService
 
     db = await anext(app.dependency_overrides[get_db]())
     user = await AuthService.link_or_create(
@@ -335,7 +335,7 @@ async def test_role_cannot_be_set_through_registration(client):
 async def test_admin_flag_follows_the_stored_role(client):
     from app.core.database import get_db
     from app.main import app
-    from app.services.auth_service import AuthService
+    from app.modules.auth.service import AuthService
 
     await register(client)
     db = await anext(app.dependency_overrides[get_db]())
@@ -355,7 +355,7 @@ async def test_require_admin_returns_404_for_non_admins(client):
     from app.api.deps import require_admin
     from app.core.database import get_db
     from app.main import app
-    from app.services.auth_service import AuthService
+    from app.modules.auth.service import AuthService
 
     await register(client)
     db = await anext(app.dependency_overrides[get_db]())
