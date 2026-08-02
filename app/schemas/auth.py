@@ -53,6 +53,8 @@ class UserResponse(BaseModel):
     email: str
     avatar_url: Optional[str] = None
     timezone: str = "UTC"
+    role: str = "user"
+    is_admin: bool = False
     email_verified: bool = False
     has_password: bool = False
     providers: list[str] = Field(default_factory=list)

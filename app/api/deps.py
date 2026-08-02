@@ -115,3 +115,14 @@ class RateLimiter:
 def reset_rate_limits() -> None:
     """Test hook -- the window is process-global."""
     _hits.clear()
+
+
+async def require_admin(user: User = Depends(current_user)) -> User:
+    """Admin-only routes.
+
+    404 rather than 403: a 403 confirms the endpoint exists, which tells a
+    probing non-admin exactly what to go after.
+    """
+    if user.role != "admin":
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found.")
+    return user

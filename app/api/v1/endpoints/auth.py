@@ -66,6 +66,8 @@ def _to_user_response(user: User) -> UserResponse:
         email=user.email,
         avatar_url=user.avatar_url,
         timezone=user.timezone,
+        role=user.role,
+        is_admin=user.role == "admin",
         email_verified=user.email_verified_at is not None,
         has_password=user.password_hash is not None,
         providers=[i.provider for i in (user.identities or [])],

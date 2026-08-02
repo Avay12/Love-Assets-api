@@ -311,3 +311,59 @@ async def test_login_is_rate_limited(client):
         r = await client.post("/api/v1/auth/login", json={"email": CREDS["email"], "password": "wrongpass1"})
         codes.append(r.status_code)
     assert 429 in codes, "brute force must eventually be throttled"
+
+
+# ------------------------------------------------------------------- role
+
+
+@pytest.mark.asyncio
+async def test_new_accounts_are_not_admin(client):
+    res = await register(client)
+    assert res.json()["user"]["role"] == "user"
+    assert res.json()["user"]["is_admin"] is False
+
+
+@pytest.mark.asyncio
+async def test_role_cannot_be_set_through_registration(client):
+    """A self-service role field would be straight privilege escalation."""
+    res = await client.post("/api/v1/auth/register", json={**CREDS, "role": "admin", "is_admin": True})
+    assert res.status_code == 201
+    assert res.json()["user"]["role"] == "user"
+
+
+@pytest.mark.asyncio
+async def test_admin_flag_follows_the_stored_role(client):
+    from app.core.database import get_db
+    from app.main import app
+    from app.services.auth_service import AuthService
+
+    await register(client)
+    db = await anext(app.dependency_overrides[get_db]())
+    user = await AuthService.get_by_email(db, CREDS["email"])
+    user.role = "admin"
+    await db.commit()
+
+    me = (await client.get("/api/v1/auth/me")).json()
+    assert me["role"] == "admin" and me["is_admin"] is True
+
+
+@pytest.mark.asyncio
+async def test_require_admin_returns_404_for_non_admins(client):
+    """404 not 403 -- a 403 confirms the route exists."""
+    from fastapi import HTTPException
+
+    from app.api.deps import require_admin
+    from app.core.database import get_db
+    from app.main import app
+    from app.services.auth_service import AuthService
+
+    await register(client)
+    db = await anext(app.dependency_overrides[get_db]())
+    user = await AuthService.get_by_email(db, CREDS["email"])
+
+    with pytest.raises(HTTPException) as err:
+        await require_admin(user)
+    assert err.value.status_code == 404
+
+    user.role = "admin"
+    assert (await require_admin(user)) is user

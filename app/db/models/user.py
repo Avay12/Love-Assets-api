@@ -26,6 +26,12 @@ class User(Base):
     avatar_url: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
     timezone: Mapped[str] = mapped_column(String(64), default="UTC", nullable=False)
 
+    # "user" or "admin". Deliberately not settable through any public
+    # endpoint -- registration always writes "user", and promotion happens
+    # out of band (scripts/make_admin.py). A self-service role field would be
+    # a straight privilege-escalation hole.
+    role: Mapped[str] = mapped_column(String(16), default="user", server_default="user", nullable=False)
+
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
