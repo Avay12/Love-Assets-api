@@ -1,5 +1,5 @@
 from datetime import date, datetime
-from typing import List, Literal, Optional
+from typing import List, Literal, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -164,6 +164,8 @@ class BirthdayInviteDetails(_CelebrantMixin):
         return self
 
 
+from typing import List, Literal, Optional, Union
+
 class WeddingDetails(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -178,7 +180,7 @@ class WeddingDetails(BaseModel):
     venue: Optional[Venue] = None
     dress_code: Optional[str] = Field(default=None, max_length=200)
     gift_accounts: List[BankAccount] = Field(default_factory=list, max_length=4)
-    story: List[StoryChapter] = Field(default_factory=list, max_length=6)
+    story: Optional[Union[List[StoryChapter], str]] = Field(default=None)
 
 
 class LoveLetterCreate(LetterCommon):

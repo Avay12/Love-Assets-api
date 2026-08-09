@@ -156,13 +156,16 @@ class LetterService:
 
 class TypedLetterService:
     @staticmethod
-    async def create(db: AsyncSession, letter_type: str, data: LetterCommon) -> TypedLetterResponse:
+    async def create(
+        db: AsyncSession, letter_type: str, data: LetterCommon, user_id: Optional[int] = None
+    ) -> TypedLetterResponse:
         details = data.details.model_dump(mode="json", exclude_none=True) if hasattr(data, "details") else {}
         if data.artwork:
             details["_artwork"] = data.artwork
 
         letter = Letter(
             slug=generate_slug(letter_type),
+            user_id=user_id,
             type=letter_type,
             template_id=data.template_id,
             from_name=data.from_name,
@@ -191,6 +194,24 @@ class TypedLetterService:
                 letter.slug = generate_slug(letter_type)
         await db.refresh(letter)
 
+        # Create payment record
+        from app.modules.payments.models import Payment
+        pay_code = f"PAY-{secrets.randbelow(9000) + 1000}"
+        payment = Payment(
+            payment_code=pay_code,
+            user_id=user_id,
+            letter_id=letter.id,
+            amount=4.99,
+            currency="USD",
+            payment_method="Card",
+            status="Paid",
+        )
+        db.add(payment)
+        try:
+            await db.commit()
+        except Exception:
+            await db.rollback()
+
         await TypedLetterService._notify(letter)
         return to_response(letter)
 
@@ -213,8 +234,11 @@ class TypedLetterService:
             )
 
     @staticmethod
-    async def get_by_slug(db: AsyncSession, slug: str) -> Optional[TypedLetterResponse]:
-        letter = await db.scalar(select(Letter).where(Letter.slug == slug))
+    async def get_by_slug(db: AsyncSession, slug: str, letter_type: Optional[str] = None) -> Optional[TypedLetterResponse]:
+        query = select(Letter).where(Letter.slug == slug)
+        if letter_type:
+            query = query.where(Letter.type == letter_type)
+        letter = await db.scalar(query)
         return to_response(letter) if letter else None
 
     @staticmethod

@@ -15,6 +15,9 @@ from app.modules.media.router import router as media_router
 from app.modules.music.router import router as music_router
 from app.modules.templates.router import router as templates_router
 
+from app.modules.admin.router import router as admin_router
+from app.modules.payments.router import router as payments_router
+
 api_router = APIRouter()
 
 api_router.include_router(health_router, tags=["Health"])
@@ -28,6 +31,8 @@ api_router.include_router(birthday_invite_router, prefix="/birthday-invitations"
 api_router.include_router(wedding_router, prefix="/wedding-invitations", tags=["Wedding Invitations"])
 
 api_router.include_router(letters_router, prefix="/letters", tags=["Letters (generic)"])
+api_router.include_router(payments_router, prefix="/payments", tags=["Payments"])
+api_router.include_router(admin_router, prefix="/admin", tags=["Admin"])
 api_router.include_router(templates_router, prefix="/templates", tags=["Templates"])
 api_router.include_router(music_router, prefix="/music", tags=["Music"])
 api_router.include_router(media_router, prefix="/media", tags=["Media"])

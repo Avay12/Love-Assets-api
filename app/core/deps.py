@@ -22,10 +22,12 @@ REFRESH_COOKIE = "w2l_refresh"
 def set_auth_cookies(response: Response, access_token: str, refresh_token: str) -> None:
     """HTTP-only cookies: JavaScript must never be able to read these, which
     rules out localStorage and makes XSS far less useful to an attacker."""
+    secure_cookie = settings.COOKIE_SECURE if not settings.DEBUG else False
+    samesite = settings.COOKIE_SAMESITE if secure_cookie else "lax"
     common = {
         "httponly": True,
-        "secure": settings.COOKIE_SECURE,
-        "samesite": settings.COOKIE_SAMESITE,
+        "secure": secure_cookie,
+        "samesite": samesite,
         "domain": settings.COOKIE_DOMAIN or None,
         "path": "/",
     }
@@ -41,18 +43,20 @@ def set_auth_cookies(response: Response, access_token: str, refresh_token: str) 
         REFRESH_COOKIE,
         refresh_token,
         max_age=settings.REFRESH_TOKEN_DAYS * 86400,
-        path="/api/v1/auth/refresh",
+        path="/api/v1/auth",
         httponly=True,
-        secure=settings.COOKIE_SECURE,
-        samesite=settings.COOKIE_SAMESITE,
+        secure=secure_cookie,
+        samesite=samesite,
         domain=settings.COOKIE_DOMAIN or None,
     )
 
 
 def clear_auth_cookies(response: Response) -> None:
-    common = {"domain": settings.COOKIE_DOMAIN or None, "path": "/"}
+    secure_cookie = settings.COOKIE_SECURE if not settings.DEBUG else False
+    samesite = settings.COOKIE_SAMESITE if secure_cookie else "lax"
+    common = {"domain": settings.COOKIE_DOMAIN or None, "path": "/", "secure": secure_cookie, "samesite": samesite}
     response.delete_cookie(ACCESS_COOKIE, **common)
-    response.delete_cookie(REFRESH_COOKIE, domain=settings.COOKIE_DOMAIN or None, path="/api/v1/auth/refresh")
+    response.delete_cookie(REFRESH_COOKIE, domain=settings.COOKIE_DOMAIN or None, path="/api/v1/auth", secure=secure_cookie, samesite=samesite)
 
 
 # --------------------------------------------------------- authentication
@@ -71,13 +75,15 @@ async def current_user_optional(
     if not token:
         return None
     claims = decode_access_token(token)
-    if not claims or claims.get("type") != "access":
+    if not claims or (claims.get("typ") != "access" and claims.get("type") != "access"):
         return None
     try:
         user_id = int(claims["sub"])
     except (KeyError, TypeError, ValueError):
         return None
-    return await db.get(User, user_id)
+    from sqlalchemy import select
+    res = await db.execute(select(User).where(User.id == user_id))
+    return res.scalar_one_or_none()
 
 
 async def current_user(user: Optional[User] = Depends(current_user_optional)) -> User:
