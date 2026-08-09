@@ -27,9 +27,20 @@ async def test_register_returns_user_and_sets_cookies(client):
     assert res.status_code == 201, res.text
     body = res.json()
     assert body["user"]["email"] == "alex@example.com"
+    assert body["user"]["role"] == "user"
+    assert body["user"]["is_admin"] is False
     assert body["user"]["has_password"] is True
     assert body["access_token"]
     assert ACCESS_COOKIE in res.cookies and REFRESH_COOKIE in res.cookies
+
+
+@pytest.mark.asyncio
+async def test_register_with_custom_role(client):
+    res = await register(client, email="admin_test@example.com", role="admin")
+    assert res.status_code == 201, res.text
+    body = res.json()
+    assert body["user"]["role"] == "admin"
+    assert body["user"]["is_admin"] is True
 
 
 @pytest.mark.asyncio

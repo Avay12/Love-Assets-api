@@ -38,14 +38,18 @@ class AuthService:
         return next((u for u in rows if u.email.lower() == email.strip().lower()), None)
 
     @staticmethod
-    async def register(db: AsyncSession, name: str, email: str, password: str) -> User:
+    async def register(
+        db: AsyncSession, name: str, email: str, password: str, role: Optional[str] = "user"
+    ) -> User:
         if await AuthService.get_by_email(db, email):
             raise HTTPException(status.HTTP_409_CONFLICT, "An account with that email already exists.")
 
+        user_role = (role or "user").strip().lower()
         user = User(
             name=name.strip(),
             email=email.strip().lower(),
             password_hash=hash_password(password),
+            role=user_role,
             timezone="UTC",
             email_verified_at=_now(),
         )

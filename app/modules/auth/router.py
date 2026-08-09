@@ -95,7 +95,7 @@ async def _respond_with_session(
 async def register(
     data: RegisterRequest, request: Request, response: Response, db: AsyncSession = Depends(get_db)
 ):
-    user = await AuthService.register(db, data.name, data.email, data.password)
+    user = await AuthService.register(db, data.name, data.email, data.password, role=data.role)
     return await _respond_with_session(db, user, request, response)
 
 

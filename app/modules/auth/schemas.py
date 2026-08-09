@@ -21,6 +21,7 @@ class RegisterRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=128)
     email: EmailStr
     password: str = Field(..., max_length=256)
+    role: Optional[str] = Field(default="user", max_length=32)
 
     _check = field_validator("password")(validate_password)
 
