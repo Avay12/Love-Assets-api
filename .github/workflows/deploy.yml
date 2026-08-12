@@ -6,10 +6,41 @@ on:
       - main
 
 jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      # The suite pins its own environment in tests/conftest.py, so it needs
+      # no secrets and never reaches the network.
+      - name: Run tests
+        run: pytest -q
+
+      - name: Verify the migration chain builds a schema from scratch
+        env:
+          DATABASE_URL: "sqlite+aiosqlite:///./ci_check.db"
+          SECRET_KEY: "ci-secret-key-that-is-at-least-32-bytes-long"
+        run: alembic upgrade head
+
   deploy:
     name: Build and Deploy FastAPI to Production
     runs-on: ubuntu-latest
     environment: production
+    needs: test
 
     steps:
       - name: Checkout code
@@ -109,8 +140,11 @@ jobs:
             ./venv/bin/pip install --upgrade pip
             ./venv/bin/pip install -r requirements.txt
 
+            # Not "|| echo ...": swallowing this is how a missing migration
+            # reached production. `upgrade head` on an up-to-date database is
+            # already a no-op that exits 0, so a failure here is a real one.
             echo "Syncing Database schema via Alembic..."
-            ./venv/bin/alembic upgrade head || echo "Alembic migration warning ignored if db up to date."
+            ./venv/bin/alembic upgrade head
 
             echo "Restarting PM2 process for FastAPI..."
             pm2 describe wish2luv-api > /dev/null && pm2 restart wish2luv-api || pm2 start "./venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000" --name wish2luv-api

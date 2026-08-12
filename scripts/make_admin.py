@@ -13,7 +13,7 @@ import sys
 sys.path.insert(0, ".")
 
 from app.core.database import AsyncSessionLocal  # noqa: E402
-from app.services.auth_service import AuthService  # noqa: E402
+from app.modules.auth.service import AuthService  # noqa: E402
 
 
 async def main(email: str, demote: bool) -> int:

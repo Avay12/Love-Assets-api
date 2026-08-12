@@ -2,15 +2,25 @@ from fastapi import APIRouter, Depends, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.core.deps import current_user
+from app.modules.auth.models import User
 from app.modules.delivery.schemas import DeliveryRequest, DeliveryResponse
 from app.modules.delivery.service import DeliveryService
+from app.modules.letters.router import load_owned_letter
 
 router = APIRouter()
 
 
-@router.post("/schedule", response_model=DeliveryResponse, status_code=status.HTTP_200_OK, summary="Schedule letter delivery")
+@router.post(
+    "/schedule",
+    response_model=DeliveryResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Schedule letter delivery",
+)
 async def schedule_delivery(
     request: DeliveryRequest,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(current_user),
 ):
-    return await DeliveryService.process_delivery(db, request)
+    letter = await load_owned_letter(db, request.letter_slug, user)
+    return await DeliveryService.process_delivery(db, letter, request)

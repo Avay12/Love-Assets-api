@@ -60,8 +60,8 @@ async def test_featured_music(client):
 
 
 @pytest.mark.asyncio
-async def test_schedule_delivery(client):
-    # First create letter
+async def test_schedule_delivery(client, signed_in):
+    # First create letter (attached to the session, so it can be re-targeted)
     payload = {
         "type": "birthday",
         "template_id": "birthday-mailbox",
@@ -85,3 +85,22 @@ async def test_schedule_delivery(client):
     res_data = delivery_res.json()
     assert res_data["success"] is True
     assert res_data["method"] == "email"
+
+
+@pytest.mark.asyncio
+async def test_schedule_delivery_requires_ownership(client, signed_in):
+    """Otherwise anyone could point any letter's SMS and voice delivery at a
+    number of their choosing, billed to our gateway account."""
+    slug = (
+        await client.post(
+            "/api/v1/letters/",
+            json={"from_name": "Sam", "to_name": "Taylor", "message": "Hi", "delivery_method": "link"},
+        )
+    ).json()["slug"]
+
+    client.cookies.clear()
+    res = await client.post(
+        "/api/v1/delivery/schedule",
+        json={"letter_slug": slug, "method": "sms", "contact": "+15550100"},
+    )
+    assert res.status_code == 401

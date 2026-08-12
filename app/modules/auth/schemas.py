@@ -21,7 +21,9 @@ class RegisterRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=128)
     email: EmailStr
     password: str = Field(..., max_length=256)
-    role: Optional[str] = Field(default="user", max_length=32)
+    # Deliberately no `role`: a self-service role field is straight privilege
+    # escalation. Promote with scripts/make_admin.py.
+    turnstile_token: Optional[str] = Field(default=None, max_length=2048)
 
     _check = field_validator("password")(validate_password)
 
@@ -29,6 +31,7 @@ class RegisterRequest(BaseModel):
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str = Field(..., max_length=256)
+    turnstile_token: Optional[str] = Field(default=None, max_length=2048)
 
 
 class ForgotPasswordRequest(BaseModel):

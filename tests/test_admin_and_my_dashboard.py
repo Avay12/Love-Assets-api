@@ -52,7 +52,10 @@ async def test_my_letters_and_payments_flow(client: AsyncClient, db_session: Asy
     assert my_pay_res.status_code == 200, my_pay_res.text
     pay_data = my_pay_res.json()
     assert pay_data["total"] >= 1
-    assert pay_data["total_paid"] == 4.99
+    # The order is recorded, but nothing has taken any money: no payment
+    # gateway is wired up, so it opens Pending and total_paid stays at zero.
+    assert pay_data["payments"][0]["status"] == "Pending"
+    assert pay_data["total_paid"] == 0.0
 
 
 @pytest.mark.asyncio

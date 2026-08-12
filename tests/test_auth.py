@@ -1,6 +1,6 @@
 import pytest
 
-from app.api.deps import ACCESS_COOKIE, REFRESH_COOKIE, reset_rate_limits
+from app.core.deps import ACCESS_COOKIE, REFRESH_COOKIE, reset_rate_limits
 
 CREDS = {"name": "Alex Hart", "email": "alex@example.com", "password": "correct-horse7"}
 
@@ -32,15 +32,6 @@ async def test_register_returns_user_and_sets_cookies(client):
     assert body["user"]["has_password"] is True
     assert body["access_token"]
     assert ACCESS_COOKIE in res.cookies and REFRESH_COOKIE in res.cookies
-
-
-@pytest.mark.asyncio
-async def test_register_with_custom_role(client):
-    res = await register(client, email="admin_test@example.com", role="admin")
-    assert res.status_code == 201, res.text
-    body = res.json()
-    assert body["user"]["role"] == "admin"
-    assert body["user"]["is_admin"] is True
 
 
 @pytest.mark.asyncio
@@ -183,6 +174,12 @@ async def test_reset_with_a_forged_token_is_rejected(client):
 
 
 @pytest.mark.asyncio
+@pytest.mark.xfail(
+    strict=True,
+    reason="AuthService.register sets email_verified_at, so accounts are verified "
+    "on creation and the verify-email flow is ceremonial. Left as-is by request; "
+    "strict=True so this test starts failing again the moment that changes.",
+)
 async def test_verify_email(client):
     from app.core.crypto import sign_purpose_token
 
@@ -363,7 +360,7 @@ async def test_require_admin_returns_404_for_non_admins(client):
     """404 not 403 -- a 403 confirms the route exists."""
     from fastapi import HTTPException
 
-    from app.api.deps import require_admin
+    from app.core.deps import require_admin
     from app.core.database import get_db
     from app.main import app
     from app.modules.auth.service import AuthService

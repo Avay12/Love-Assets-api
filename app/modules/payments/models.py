@@ -24,7 +24,9 @@ class Payment(Base):
     currency: Mapped[str] = mapped_column(String(8), default="USD", nullable=False)
 
     payment_method: Mapped[str] = mapped_column(String(32), default="Card", nullable=False)
-    status: Mapped[str] = mapped_column(String(32), default="Paid", nullable=False)
+    # Pending -> Paid | Refunded. Nothing moves an order to Paid yet: there is
+    # no payment gateway wired up.
+    status: Mapped[str] = mapped_column(String(32), default="Pending", nullable=False)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
 

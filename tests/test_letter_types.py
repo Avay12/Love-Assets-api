@@ -102,7 +102,7 @@ async def test_missing_required_field_is_rejected(client):
 
 
 @pytest.mark.asyncio
-async def test_list_is_scoped_to_type(client):
+async def test_list_is_scoped_to_type(client, admin):
     await client.post("/api/v1/love-letters/", json=BASE)
     await client.post("/api/v1/wedding-invitations/", json=BASE)
 
@@ -112,10 +112,43 @@ async def test_list_is_scoped_to_type(client):
 
 
 @pytest.mark.asyncio
-async def test_delete(client):
+async def test_listing_letters_is_admin_only(client, signed_in):
+    """A public list hands out every letter's message and delivery_contact."""
+    await client.post("/api/v1/love-letters/", json=BASE)
+    assert (await client.get("/api/v1/love-letters/")).status_code == 404  # admin guard 404s
+    assert (await client.get("/api/v1/letters/")).status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_delete(client, signed_in):
     slug = (await client.post("/api/v1/birthday-letters/", json=BASE)).json()["slug"]
     assert (await client.delete(f"/api/v1/birthday-letters/{slug}")).status_code == 204
     assert (await client.get(f"/api/v1/birthday-letters/{slug}")).status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_delete_requires_a_session(client):
+    slug = (await client.post("/api/v1/birthday-letters/", json=BASE)).json()["slug"]
+    assert (await client.delete(f"/api/v1/birthday-letters/{slug}")).status_code == 401
+    assert (await client.get(f"/api/v1/birthday-letters/{slug}")).status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_a_letter_cannot_be_deleted_by_a_stranger(client, signed_in):
+    """Knowing the slug lets you read a letter -- it must not let you destroy it."""
+    slug = (await client.post("/api/v1/birthday-letters/", json=BASE)).json()["slug"]
+
+    client.cookies.clear()
+    other = await client.post(
+        "/api/v1/auth/register",
+        json={"name": "Mallory", "email": "mallory@example.com", "password": "correct-horse7"},
+    )
+    from app.core.deps import ACCESS_COOKIE
+
+    client.cookies.set(ACCESS_COOKIE, other.json()["access_token"])
+
+    assert (await client.delete(f"/api/v1/birthday-letters/{slug}")).status_code == 403
+    assert (await client.get(f"/api/v1/birthday-letters/{slug}")).status_code == 200
 
 
 @pytest.mark.asyncio

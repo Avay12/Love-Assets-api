@@ -1,13 +1,13 @@
-import random
 import secrets
 import string
 from typing import List, Optional, Tuple
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.modules.delivery.email_service import EmailService
 from app.modules.delivery.seven_service import SevenService
 from app.modules.letters.models import Letter
 from app.modules.letters.schemas import (
@@ -38,6 +38,38 @@ def share_url_for(slug: str) -> str:
     return f"{settings.PUBLIC_APP_URL.rstrip('/')}/l/{slug}"
 
 
+async def notify_recipient(letter: Letter) -> None:
+    """Hand the share link to the recipient over the chosen channel.
+
+    "link" is a no-op by design: the sender passes the URL on themselves.
+    Every sender returns False rather than raising when its integration is
+    unconfigured, so a missing API key never fails letter creation.
+    """
+    if not letter.delivery_contact or letter.delivery_method == "link":
+        return
+    link = share_url_for(letter.slug)
+
+    if letter.delivery_method == "email":
+        await EmailService.send_letter(
+            to_email=letter.delivery_contact,
+            from_name=letter.from_name,
+            to_name=letter.to_name,
+            link=link,
+        )
+    elif letter.delivery_method == "sms":
+        await SevenService.send_sms(
+            to=letter.delivery_contact,
+            text=f"{letter.from_name} sent you something. Open it here: {link}",
+            delay=letter.scheduled_at,
+        )
+    elif letter.delivery_method == "call":
+        await SevenService.send_voice(
+            to=letter.delivery_contact,
+            text=f"Hello {letter.to_name}, you have a new message from {letter.from_name}.",
+            delay=letter.scheduled_at,
+        )
+
+
 def to_response(letter: Letter) -> TypedLetterResponse:
     return TypedLetterResponse(
         id=letter.id,
@@ -65,7 +97,7 @@ def to_response(letter: Letter) -> TypedLetterResponse:
 
 class LetterService:
     @staticmethod
-    async def create_letter(db: AsyncSession, data: LetterCreate) -> Letter:
+    async def create_letter(db: AsyncSession, data: LetterCreate, user_id: Optional[int] = None) -> Letter:
         slug_prefix = "birthday" if data.type == "birthday" else "love"
         slug = generate_slug(slug_prefix)
 
@@ -76,6 +108,7 @@ class LetterService:
 
         letter = Letter(
             slug=slug,
+            user_id=user_id,
             type=data.type,
             template_id=data.template_id,
             from_name=data.from_name,
@@ -95,13 +128,7 @@ class LetterService:
         await db.commit()
         await db.refresh(letter)
 
-        if data.delivery_method == "sms" and data.delivery_contact:
-            text = f"You received a {data.type} letter from {data.from_name}! View it here: {settings.PUBLIC_APP_URL.rstrip('/')}/l/{letter.slug}"
-            await SevenService.send_sms(to=data.delivery_contact, text=text, delay=data.scheduled_at)
-        elif data.delivery_method == "call" and data.delivery_contact:
-            text = f"Hello {data.to_name}, you have a new {data.type} letter from {data.from_name}."
-            await SevenService.send_voice(to=data.delivery_contact, text=text, delay=data.scheduled_at)
-
+        await notify_recipient(letter)
         return letter
 
     @staticmethod
@@ -131,27 +158,14 @@ class LetterService:
         return list(letters), total
 
     @staticmethod
-    async def update_letter(db: AsyncSession, slug: str, data: LetterUpdate) -> Optional[Letter]:
-        letter = await LetterService.get_letter_by_slug(db, slug)
-        if not letter:
-            return None
-
-        update_data = data.model_dump(exclude_unset=True)
-        for key, value in update_data.items():
+    async def apply_update(db: AsyncSession, letter: Letter, data: LetterUpdate) -> Letter:
+        """Write a patch onto a letter the caller has already been authorised
+        for -- the ownership check lives in the router."""
+        for key, value in data.model_dump(exclude_unset=True).items():
             setattr(letter, key, value)
-
         await db.commit()
         await db.refresh(letter)
         return letter
-
-    @staticmethod
-    async def delete_letter(db: AsyncSession, slug: str) -> bool:
-        letter = await LetterService.get_letter_by_slug(db, slug)
-        if not letter:
-            return False
-        await db.delete(letter)
-        await db.commit()
-        return True
 
 
 class TypedLetterService:
@@ -194,17 +208,19 @@ class TypedLetterService:
                 letter.slug = generate_slug(letter_type)
         await db.refresh(letter)
 
-        # Create payment record
+        # Record the order. No payment gateway is wired up yet, so this opens
+        # as "Pending" and stays there -- nothing here has taken any money, and
+        # writing "Paid" would put invented revenue on the admin dashboard.
         from app.modules.payments.models import Payment
-        pay_code = f"PAY-{secrets.randbelow(9000) + 1000}"
+
         payment = Payment(
-            payment_code=pay_code,
+            payment_code=f"PAY-{secrets.token_hex(4).upper()}",
             user_id=user_id,
             letter_id=letter.id,
-            amount=4.99,
-            currency="USD",
+            amount=settings.LETTER_PRICE,
+            currency=settings.LETTER_CURRENCY,
             payment_method="Card",
-            status="Paid",
+            status="Pending",
         )
         db.add(payment)
         try:
@@ -212,26 +228,8 @@ class TypedLetterService:
         except Exception:
             await db.rollback()
 
-        await TypedLetterService._notify(letter)
+        await notify_recipient(letter)
         return to_response(letter)
-
-    @staticmethod
-    async def _notify(letter: Letter) -> None:
-        if not letter.delivery_contact:
-            return
-        link = share_url_for(letter.slug)
-        if letter.delivery_method == "sms":
-            await SevenService.send_sms(
-                to=letter.delivery_contact,
-                text=f"{letter.from_name} sent you something. Open it here: {link}",
-                delay=letter.scheduled_at,
-            )
-        elif letter.delivery_method == "call":
-            await SevenService.send_voice(
-                to=letter.delivery_contact,
-                text=f"Hello {letter.to_name}, you have a new message from {letter.from_name}.",
-                delay=letter.scheduled_at,
-            )
 
     @staticmethod
     async def get_by_slug(db: AsyncSession, slug: str, letter_type: Optional[str] = None) -> Optional[TypedLetterResponse]:

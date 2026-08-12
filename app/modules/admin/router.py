@@ -1,14 +1,18 @@
+import logging
 from datetime import datetime, timezone, timedelta
-from typing import List
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.crypto import verify_password, hash_password
+from app.core.config import settings
+from app.core.crypto import hash_password, sign_purpose_token, verify_password
 from app.core.database import get_db
 from app.core.deps import require_admin, current_user
 from app.modules.auth.models import User
+from app.modules.auth.service import AuthService
+from app.modules.delivery.email_service import EmailService
 from app.modules.letters.models import Letter
 from app.modules.payments.models import Payment
 from app.modules.admin.schemas import (
@@ -21,7 +25,31 @@ from app.modules.admin.schemas import (
     StatItem,
 )
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
+
+
+def _percent_delta(current: float, previous: float) -> str:
+    """Period-over-period change. With no prior activity a percentage is
+    meaningless (any growth is "infinite"), so say "new" instead of inventing
+    a number."""
+    if previous == 0:
+        return "new" if current else "—"
+    change = (current - previous) / previous * 100
+    return f"{change:+.1f}%"
+
+
+def _count_delta(current: int, previous: int) -> str:
+    return f"{current - previous:+d}"
+
+
+async def _count_between(
+    db: AsyncSession, model, column, start: datetime, end: Optional[datetime] = None
+) -> int:
+    query = select(func.count()).select_from(model).where(column >= start)
+    if end is not None:
+        query = query.where(column < end)
+    return (await db.execute(query)).scalar_one() or 0
 
 
 @router.get("/stats", response_model=List[StatItem])
@@ -29,30 +57,51 @@ async def get_admin_stats(
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_admin),
 ):
+    now = datetime.now(timezone.utc)
+    last_30 = now - timedelta(days=30)
+    prior_30 = now - timedelta(days=60)
+    today_start = datetime(now.year, now.month, now.day, tzinfo=timezone.utc)
+    yesterday_start = today_start - timedelta(days=1)
+
     total_users = (await db.execute(select(func.count(User.id)))).scalar_one() or 0
     total_letters = (await db.execute(select(func.count(Letter.id)))).scalar_one() or 0
 
-    now = datetime.now(timezone.utc)
-    thirty_days_ago = now - timedelta(days=30)
+    users_recent = await _count_between(db, User, User.created_at, last_30)
+    users_prior = await _count_between(db, User, User.created_at, prior_30, last_30)
+    letters_recent = await _count_between(db, Letter, Letter.created_at, last_30)
+    letters_prior = await _count_between(db, Letter, Letter.created_at, prior_30, last_30)
 
-    rev_res = await db.execute(
-        select(func.sum(Payment.amount))
-        .where(Payment.status == "Paid", Payment.created_at >= thirty_days_ago)
-    )
-    rev_sum = rev_res.scalar_one_or_none() or 0.0
-
-    today_start = datetime(now.year, now.month, now.day, tzinfo=timezone.utc)
-    delivered_today = (
-        await db.execute(
-            select(func.count(Letter.id)).where(Letter.created_at >= today_start)
+    async def revenue_between(start: datetime, end: Optional[datetime] = None) -> float:
+        query = select(func.sum(Payment.amount)).where(
+            Payment.status == "Paid", Payment.created_at >= start
         )
-    ).scalar_one() or 0
+        if end is not None:
+            query = query.where(Payment.created_at < end)
+        return float((await db.execute(query)).scalar_one_or_none() or 0.0)
+
+    revenue_recent = await revenue_between(last_30)
+    revenue_prior = await revenue_between(prior_30, last_30)
+
+    delivered_today = await _count_between(db, Letter, Letter.created_at, today_start)
+    delivered_yesterday = await _count_between(db, Letter, Letter.created_at, yesterday_start, today_start)
 
     return [
-        StatItem(label="Total users", value=f"{total_users:,}", delta="+8.2%"),
-        StatItem(label="Letters created", value=f"{total_letters:,}", delta="+12.4%"),
-        StatItem(label="Revenue (30d)", value=f"${rev_sum:,.2f}", delta="+5.1%"),
-        StatItem(label="Delivered today", value=str(delivered_today), delta="+3"),
+        StatItem(label="Total users", value=f"{total_users:,}", delta=_percent_delta(users_recent, users_prior)),
+        StatItem(
+            label="Letters created",
+            value=f"{total_letters:,}",
+            delta=_percent_delta(letters_recent, letters_prior),
+        ),
+        StatItem(
+            label="Revenue (30d)",
+            value=f"${revenue_recent:,.2f}",
+            delta=_percent_delta(revenue_recent, revenue_prior),
+        ),
+        StatItem(
+            label="Delivered today",
+            value=str(delivered_today),
+            delta=_count_delta(delivered_today, delivered_yesterday),
+        ),
     ]
 
 
@@ -90,22 +139,34 @@ async def invite_user(
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_admin),
 ):
-    # Check existing
-    res = await db.execute(select(User).where(User.email == body.email))
-    existing = res.scalar_one_or_none()
-    if existing:
+    # get_by_email, not a bare ==: emails are case-insensitive, and only
+    # Postgres has CITEXT to enforce that at the column.
+    if await AuthService.get_by_email(db, body.email):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "User with this email already exists.")
 
     invited = User(
         name=body.email.split("@")[0].capitalize(),
-        email=body.email,
+        email=body.email.strip().lower(),
         role="user",
     )
     db.add(invited)
     await db.commit()
     await db.refresh(invited)
 
-    return {"message": f"Invitation sent to {body.email}", "id": f"USR-{invited.id + 1000}"}
+    # No password_hash, so the account cannot be signed into until they set one.
+    # The invite is a reset-password link, valid for a week.
+    token = sign_purpose_token("reset-password", str(invited.id), minutes=7 * 24 * 60)
+    link = f"{settings.PUBLIC_APP_URL.rstrip('/')}/reset-password?token={token}"
+    sent = await EmailService.send_invite(invited.email, link) if settings.smtp_enabled else False
+    if not sent:
+        logger.warning("Could not email invite to %s -- link: %s", invited.email, link)
+
+    message = (
+        f"Invitation sent to {invited.email}"
+        if sent
+        else f"Account created for {invited.email}, but the invitation email could not be sent."
+    )
+    return {"message": message, "id": f"USR-{invited.id + 1000}", "email_sent": sent}
 
 
 @router.get("/letters", response_model=List[AdminLetterItem])
@@ -173,6 +234,7 @@ async def get_admin_payments(
     items = []
     total_rev = 0.0
     paid_count = 0
+    pending_count = 0
     refunded_count = 0
     refunded_sum = 0.0
 
@@ -184,6 +246,8 @@ async def get_admin_payments(
         elif payment.status == "Refunded":
             refunded_count += 1
             refunded_sum += payment.amount
+        elif payment.status == "Pending":
+            pending_count += 1
 
         date_str = payment.created_at.strftime("%d %b %Y") if payment.created_at else "—"
 
@@ -198,13 +262,21 @@ async def get_admin_payments(
             )
         )
 
-    avg_order = (total_rev / paid_count) if paid_count > 0 else 4.99
+    avg_order = (total_rev / paid_count) if paid_count > 0 else 0.0
 
     stats = [
-        StatItem(label="Revenue (30d)", value=f"${total_rev:,.2f}", delta="+5.1%"),
-        StatItem(label="Transactions", value=f"{len(items):,}", delta=f"+{len(items)}"),
-        StatItem(label="Refunds", value=f"${refunded_sum:.2f}", delta=f"{refunded_count} total"),
-        StatItem(label="Avg. order", value=f"${avg_order:.2f}", delta="+$0.18"),
+        StatItem(
+            label="Revenue (all time)",
+            value=f"${total_rev:,.2f}",
+            delta=f"{paid_count} paid" if paid_count else "no payments yet",
+        ),
+        StatItem(label="Transactions", value=f"{len(items):,}", delta=f"{pending_count} pending"),
+        StatItem(label="Refunds", value=f"${refunded_sum:,.2f}", delta=f"{refunded_count} total"),
+        StatItem(
+            label="Avg. order",
+            value=f"${avg_order:,.2f}",
+            delta="across paid orders" if paid_count else "—",
+        ),
     ]
 
     return AdminPaymentsResponse(stats=stats, payments=items)

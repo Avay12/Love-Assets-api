@@ -1,138 +1,153 @@
-# Wish2Love API - FastAPI Backend
+# Wish2Love API
 
-A production-ready FastAPI backend designed for the **Wish2Love** application. Built with modular Python architecture, Uvicorn, async SQLAlchemy ORM, SQLite database, and local media file management.
+FastAPI backend for **Wish2Love** — keepsake letters with photos, music and a
+share link. Async SQLAlchemy 2.0, Alembic migrations, Postgres in production
+(SQLite works for local development).
 
----
-
-## 🌟 Key Features
-
-- **Standard Modular Structure**: Clean separation of `api/`, `core/`, `db/`, `schemas/`, `services/`, and `utils/`.
-- **FastAPI & Uvicorn**: High-performance async web server with auto-reload capabilities.
-- **Async SQLAlchemy & SQLite**: Embedded zero-config database (`sqlite+aiosqlite`) working out-of-the-box.
-- **Local File Uploads**: Photo & media upload handling with automatic unique naming served statically under `/uploads/...`.
-- **CORS Configured**: CORS enabled for all origins (`*`) by default, ready for frontend integration on `localhost:5173`, `localhost:3000`, or custom ports.
-- **Interactive Swagger Docs**: OpenAPI & Redoc available out of the box at `/docs` and `/redoc`.
-- **Complete Test Suite**: Automated pytest test suite covering API endpoints and CRUD workflows.
+The frontend lives in [`../LoveAssets`](../LoveAssets).
 
 ---
 
-## 📁 Project Structure
-
-```text
-loveAssets-api/
-├── app/
-│   ├── api/
-│   │   ├── router.py               # Main API Router
-│   │   └── v1/
-│   │       ├── router.py          # V1 Router aggregator
-│   │       └── endpoints/
-│   │           ├── health.py      # Health check endpoint
-│   │           ├── letters.py     # Love & Birthday letter CRUD
-│   │           ├── templates.py   # Letter reveal template catalog
-│   │           ├── music.py       # Track search & featured songs
-│   │           ├── media.py       # Photo & asset upload handler
-│   │           └── delivery.py    # Delivery scheduling
-│   ├── core/
-│   │   ├── config.py              # Pydantic Settings & Env loader
-│   │   └── database.py            # SQLAlchemy async engine & session
-│   ├── db/
-│   │   ├── base.py                # Model metadata registration
-│   │   └── models/
-│   │       ├── letter.py          # Letter database model
-│   │       └── template.py        # Template database model
-│   ├── schemas/
-│   │   ├── letter.py              # Letter Pydantic schemas
-│   │   ├── template.py            # Template Pydantic schemas
-│   │   ├── music.py               # Music Pydantic schemas
-│   │   ├── delivery.py            # Delivery Pydantic schemas
-│   │   └── media.py               # Media Pydantic schemas
-│   ├── services/
-│   │   ├── letter_service.py      # Letter business logic & slug generator
-│   │   ├── template_service.py    # Template catalog provider
-│   │   ├── music_service.py       # Track search & preview logic
-│   │   └── delivery_service.py    # Dispatch logic
-│   ├── utils/
-│   │   └── storage.py             # File upload helper
-│   └── main.py                    # FastAPI app initialization & CORS setup
-├── uploads/                       # Local media storage directory
-├── tests/
-│   ├── conftest.py                # Test fixtures & async client
-│   └── test_api.py                # Integration unit tests
-├── .env                           # Environment configuration
-├── .env.example                   # Example configuration
-├── .gitignore
-├── requirements.txt               # Dependencies
-├── README.md                      # Documentation
-└── run.py                         # Uvicorn entry point
-```
-
----
-
-## 🚀 Quick Start
-
-### 1. Set Up Virtual Environment
+## Quick start
 
 ```bash
-# Create virtual environment
 python -m venv venv
-
-# Activate on Windows (PowerShell)
-.\venv\Scripts\Activate.ps1
-
-# Activate on Linux/macOS
-source venv/bin/activate
-```
-
-### 2. Install Dependencies
-
-```bash
+venv\Scripts\Activate.ps1          # Linux/macOS: source venv/bin/activate
 pip install -r requirements.txt
-```
-
-### 3. Launch with Uvicorn
-
-```bash
+cp .env.example .env               # then fill in SECRET_KEY at minimum
+alembic upgrade head
 python run.py
 ```
-*Or using uvicorn directly:*
-```bash
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+
+- Swagger UI: <http://localhost:8000/docs>
+- ReDoc: <http://localhost:8000/redoc>
+
+The schema is owned by Alembic. `create_all` is deliberately not called on
+startup — it only ever adds missing tables and silently ignores changes to
+existing ones, so the first altered column would go unnoticed.
+
+---
+
+## Layout
+
+```text
+app/
+├── api/
+│   ├── router.py             # mounts v1 under API_V1_STR
+│   └── v1/router.py          # aggregates every module router
+├── core/
+│   ├── config.py             # pydantic-settings, reads .env
+│   ├── crypto.py             # argon2, JWT, purpose tokens, Fernet at rest
+│   ├── database.py           # async engine + get_db session dependency
+│   └── deps.py               # current_user, cookies, rate limiter, require_admin
+├── db/base.py                # imports every model so Alembic can see it
+├── modules/                  # one package per domain
+│   ├── auth/                 # register, login, sessions, OAuth
+│   ├── letters/              # the five letter types + generic CRUD
+│   ├── templates/            # reveal-template catalogue
+│   ├── music/                # featured tracks + search
+│   ├── media/                # photo upload
+│   ├── delivery/             # email, SMS, voice, Turnstile
+│   ├── payments/             # order records
+│   ├── admin/                # admin dashboard
+│   └── health/
+├── utils/storage.py          # upload validation and streaming write
+└── main.py
+migrations/                   # Alembic
+scripts/make_admin.py         # the only way to promote an account
+tests/
 ```
 
----
-
-## 🌐 API Documentation
-
-Once the server is running, visit:
-- **Interactive Swagger UI**: [http://localhost:8000/docs](http://localhost:8000/docs)
-- **ReDoc UI**: [http://localhost:8000/redoc](http://localhost:8000/redoc)
+Each module holds its own `router.py`, `schemas.py`, and where it needs one a
+`models.py` and `service.py`.
 
 ---
 
-## 📌 API Endpoints Overview
+## Endpoints
 
-| Method | Endpoint | Description |
-|---|---|---|
-| `GET` | `/` | Root welcome message |
-| `GET` | `/api/v1/health` | System health check |
-| `POST` | `/api/v1/letters/` | Create a new letter |
-| `GET` | `/api/v1/letters/` | List all letters (with optional `type` filter) |
-| `GET` | `/api/v1/letters/{slug}` | Get letter details by unique slug |
-| `PUT` | `/api/v1/letters/{slug}` | Update letter content or metadata |
-| `DELETE` | `/api/v1/letters/{slug}` | Delete letter |
-| `GET` | `/api/v1/templates/` | List available templates |
-| `GET` | `/api/v1/templates/{id}` | Get template details by ID |
-| `GET` | `/api/v1/music/featured` | List featured romantic & birthday tracks |
-| `GET` | `/api/v1/music/search` | Search tracks by query |
-| `POST` | `/api/v1/media/upload` | Upload photo/image asset to `/uploads/` |
-| `POST` | `/api/v1/delivery/schedule` | Schedule letter delivery (link, email, sms, call) |
+Everything is under `/api/v1`. **Auth** column: *public* needs nothing,
+*session* needs a signed-in user, *owner* needs the letter's owner (an admin
+also passes), *admin* needs `role = "admin"`.
+
+| Method | Path | Auth | |
+|---|---|---|---|
+| `GET` | `/health` | public | Pings the database |
+| `POST` | `/auth/register` | public | Creates an account. `role` is **not** accepted |
+| `POST` | `/auth/login` | public | |
+| `POST` | `/auth/logout` | public | Revokes the refresh token server-side |
+| `POST` | `/auth/refresh` | public | Rotates the session |
+| `GET` | `/auth/me` | session | |
+| `POST` | `/auth/forgot-password` | public | Emails a 30-minute reset link |
+| `POST` | `/auth/reset-password` | public | Consumes the link, revokes all sessions |
+| `POST` | `/auth/verify-email` | public | |
+| `GET` | `/auth/providers` | public | Which OAuth providers are configured |
+| `GET` | `/auth/oauth/{provider}` | public | `google` or `github` |
+| `GET` | `/auth/oauth/{provider}/callback` | public | Redirect target |
+| `POST` | `/{type}/` | public | Create — attached to the session if there is one |
+| `GET` | `/{type}/` | admin | List by type |
+| `GET` | `/{type}/{slug}` | public | Open a shared letter |
+| `DELETE` | `/{type}/{slug}` | owner | |
+| `GET` | `/letters/my-letters` | session | The caller's letters |
+| `POST` `GET` | `/letters/` | public / admin | Generic create, admin-only list |
+| `GET` `PUT` `DELETE` | `/letters/{slug}` | public / owner / owner | |
+| `POST` | `/delivery/schedule` | owner | Re-target a letter's delivery |
+| `GET` | `/payments/my-payments` | session | |
+| `GET` | `/templates/`, `/templates/{id}` | public | |
+| `GET` | `/music/featured`, `/music/search` | public | |
+| `POST` | `/media/upload` | public | Photo or audio, 10 MB cap |
+| `GET` | `/admin/stats`, `/admin/users`, `/admin/letters`, `/admin/payments` | admin | |
+| `POST` | `/admin/users/invite` | admin | Emails a set-your-password link |
+| `DELETE` | `/admin/letters/{slug}` | admin | |
+| `POST` | `/admin/change-password` | session | |
+
+`{type}` is one of `love-letters`, `valentine-letters`, `birthday-letters`,
+`birthday-invitations`, `wedding-invitations`.
+
+### Why listing is admin-only
+
+A letter's slug is its capability: 10 random characters from `secrets`, handed
+to the recipient. Reading one by slug is therefore public — that is the whole
+product. Listing is not, because a public list hands out every letter's names,
+private message and `delivery_contact` (recipient phone numbers and email
+addresses), which would make the slug entropy pointless.
 
 ---
 
-## 🧪 Running Tests
+## Notes on operation
 
-Run pytest to execute the full integration test suite:
+**Admins.** `role` is never settable through the API. Promote an account with:
+
+```bash
+python scripts/make_admin.py alex@example.com
+```
+
+**One worker only, for now.** The rate limiter (`app/core/deps.py`) and the
+OAuth state map (`app/modules/auth/router.py`) are in-process dictionaries.
+With more than one worker the rate limit multiplies by worker count and an
+OAuth callback can land on a process that never saw the handshake start. Both
+need to move to Redis (`REDIS_URL` is reserved in `.env.example`) before
+scaling out.
+
+**Payments are not implemented.** Creating a letter records an order at
+`LETTER_PRICE` with status `Pending`. No gateway is wired up, so nothing ever
+moves it to `Paid` and the admin revenue figures read zero. That is accurate,
+not broken.
+
+**Unconfigured integrations degrade quietly.** With no `SEVEN_API_KEY`,
+`SMTP_USER`/`SMTP_PASSWORD` or `TURNSTILE_SECRET_KEY`, SMS/voice, email and the
+captcha check are skipped rather than failing the request — so a fresh checkout
+runs with an empty `.env`. Password reset and invite links are written to the
+log when email is unavailable.
+
+---
+
+## Tests
 
 ```bash
 pytest
 ```
+
+`tests/conftest.py` pins the whole environment before settings are built, so the
+suite ignores your `.env`, uses an in-memory SQLite database and never reaches
+the network. CI runs it, plus `alembic upgrade head` against an empty database,
+before the deploy job is allowed to start.

@@ -8,6 +8,14 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 # Query params libpq understands but asyncpg does not.
 _LIBPQ_ONLY = {"sslmode", "sslrootcert", "sslcert", "sslkey", "target_session_attrs", "channel_binding"}
 
+_DEFAULT_CORS_ORIGINS = [
+    "http://localhost:8080",
+    "http://localhost:5173",
+    "http://localhost:3000",
+    "https://wish2luv.com",
+    "https://www.wish2luv.com",
+]
+
 
 def _strip_libpq_params(url: str) -> str:
     parts = urlsplit(url)
@@ -122,6 +130,15 @@ class Settings(BaseSettings):
     SMTP_PASSWORD: str = ""
     MAIL_FROM: str = "Wish2Love <no-reply@wish2love.com>"
 
+    @property
+    def smtp_enabled(self) -> bool:
+        return bool(self.SMTP_USER and self.SMTP_PASSWORD)
+
+    # What a letter costs. No payment gateway is wired up yet, so orders are
+    # recorded as "Pending" at this price and only move to "Paid" once one is.
+    LETTER_PRICE: float = 4.99
+    LETTER_CURRENCY: str = "USD"
+
     # Captcha / Bot Protection
     TURNSTILE_SECRET_KEY: str = ""
 
@@ -129,14 +146,8 @@ class Settings(BaseSettings):
     def turnstile_enabled(self) -> bool:
         return bool(self.TURNSTILE_SECRET_KEY)
 
-    # CORS Configuration
-    CORS_ORIGINS: Union[List[str], str] = [
-        "http://localhost:8080",
-        "http://localhost:5173",
-        "http://localhost:3000",
-        "https://wish2luv.com",
-        "https://www.wish2luv.com",
-    ]
+    # CORS Configuration. A wildcard is rejected -- see the validator below.
+    CORS_ORIGINS: Union[List[str], str] = _DEFAULT_CORS_ORIGINS.copy()
 
     @field_validator("CORS_ORIGINS", mode="before")
     @classmethod
@@ -150,13 +161,20 @@ class Settings(BaseSettings):
             return [i.strip() for i in v.split(",") if i.strip()]
         elif isinstance(v, list):
             return v
-        return [
-            "http://localhost:8080",
-            "http://localhost:5173",
-            "http://localhost:3000",
-            "https://wish2luv.com",
-            "https://www.wish2luv.com",
-        ]
+        return _DEFAULT_CORS_ORIGINS.copy()
+
+    @field_validator("CORS_ORIGINS", mode="after")
+    @classmethod
+    def _no_wildcard_origin(cls, v: List[str]) -> List[str]:
+        """The API authenticates with cookies, and `allow_credentials=True`
+        alongside a wildcard origin lets any site on the internet make
+        authenticated calls with a visitor's session. List the origins."""
+        if "*" in v:
+            raise ValueError(
+                "CORS_ORIGINS must not contain '*': this API sends credentials, "
+                "so every allowed origin has to be named explicitly."
+            )
+        return v
 
     model_config = SettingsConfigDict(
         env_file=".env",

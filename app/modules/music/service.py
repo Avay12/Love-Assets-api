@@ -72,12 +72,10 @@ class MusicService:
 
     @staticmethod
     def search_songs(query: str) -> List[TrackResult]:
-        if not query.strip():
-            return FEATURED_TRACKS
-
+        """An empty query means "show me everything"; a query that matches
+        nothing returns nothing. Falling back to featured tracks on a miss made
+        every search look successful, however far off the term was."""
         q = query.lower().strip()
-        matched = [
-            t for t in FEATURED_TRACKS
-            if q in t.title.lower() or q in t.artist.lower()
-        ]
-        return matched if matched else FEATURED_TRACKS[:3]
+        if not q:
+            return FEATURED_TRACKS
+        return [t for t in FEATURED_TRACKS if q in t.title.lower() or q in t.artist.lower()]

@@ -4,6 +4,7 @@ import base64
 import hashlib
 import logging
 import secrets
+import time
 from datetime import datetime, timezone
 from typing import Optional
 from urllib.parse import urlencode
@@ -35,9 +36,18 @@ from app.modules.auth.schemas import (
     VerifyEmailRequest,
 )
 from app.modules.auth.service import AuthService
+from app.modules.delivery.email_service import EmailService
+from app.modules.delivery.turnstile_service import TurnstileService
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+
+async def _check_turnstile(token: Optional[str], request: Request) -> None:
+    """No-op when TURNSTILE_SECRET_KEY is unset, so local dev needs no captcha."""
+    ip = request.client.host if request.client else None
+    if not await TurnstileService.verify_token(token or "", remote_ip=ip):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Captcha verification failed. Please try again.")
 
 PROVIDERS = {
     "google": {
@@ -54,7 +64,22 @@ PROVIDERS = {
     },
 }
 
-_pending: dict[str, tuple[str, str]] = {}
+# In-flight OAuth handshakes: state -> (pkce_verifier, return_to, created_at).
+# Single-process only, like the rate limiter in app.core.deps -- run more than
+# one worker and a callback can land on a process that never saw the start.
+# Entries are pruned so an abandoned sign-in cannot leak an entry forever.
+_pending: dict[str, tuple[str, str, float]] = {}
+_PENDING_TTL_SECONDS = 600
+_PENDING_MAX = 1000
+
+
+def _prune_pending(now: float) -> None:
+    for state in [s for s, (_, _, born) in _pending.items() if now - born > _PENDING_TTL_SECONDS]:
+        _pending.pop(state, None)
+    # Hard cap in case of a flood: drop the oldest first.
+    if len(_pending) > _PENDING_MAX:
+        for state, _ in sorted(_pending.items(), key=lambda kv: kv[1][2])[: len(_pending) - _PENDING_MAX]:
+            _pending.pop(state, None)
 
 
 def _to_user_response(user: User) -> UserResponse:
@@ -95,7 +120,8 @@ async def _respond_with_session(
 async def register(
     data: RegisterRequest, request: Request, response: Response, db: AsyncSession = Depends(get_db)
 ):
-    user = await AuthService.register(db, data.name, data.email, data.password, role=data.role)
+    await _check_turnstile(data.turnstile_token, request)
+    user = await AuthService.register(db, data.name, data.email, data.password)
     return await _respond_with_session(db, user, request, response)
 
 
@@ -108,6 +134,7 @@ async def register(
 async def login(
     data: LoginRequest, request: Request, response: Response, db: AsyncSession = Depends(get_db)
 ):
+    await _check_turnstile(data.turnstile_token, request)
     user = await AuthService.authenticate(db, data.email, data.password)
     return await _respond_with_session(db, user, request, response)
 
@@ -148,7 +175,14 @@ async def forgot_password(data: ForgotPasswordRequest, db: AsyncSession = Depend
     user = await AuthService.get_by_email(db, data.email)
     if user:
         token = sign_purpose_token("reset-password", str(user.id), minutes=30)
-        logger.info("Password reset link for %s: %s/reset-password?token=%s", user.email, settings.PUBLIC_APP_URL, token)
+        link = f"{settings.PUBLIC_APP_URL.rstrip('/')}/reset-password?token={token}"
+        if settings.smtp_enabled:
+            await EmailService.send_password_reset(user.email, user.name, link)
+        else:
+            # Without SMTP the link would otherwise vanish. Dev-only fallback.
+            logger.warning("SMTP not configured -- password reset link for %s: %s", user.email, link)
+    # Same response either way: a different one would confirm which addresses
+    # are registered.
     return {"message": "If that email is registered, a reset link is on its way."}
 
 
@@ -211,7 +245,9 @@ async def oauth_start(provider: str, return_to: Optional[str] = None):
     state = secrets.token_urlsafe(24)
     verifier = secrets.token_urlsafe(64)
     challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).decode().rstrip("=")
-    _pending[state] = (verifier, _safe_return_to(return_to))
+    now = time.monotonic()
+    _prune_pending(now)
+    _pending[state] = (verifier, _safe_return_to(return_to), now)
 
     params = {
         "client_id": settings.GOOGLE_CLIENT_ID if provider == "google" else settings.GITHUB_CLIENT_ID,
@@ -251,7 +287,9 @@ async def oauth_callback(
     pending = _pending.pop(state, None)
     if pending is None:
         return fail("bad_state")
-    verifier, return_to = pending
+    verifier, return_to, started_at = pending
+    if time.monotonic() - started_at > _PENDING_TTL_SECONDS:
+        return fail("bad_state")
 
     data = {
         "client_id": settings.GOOGLE_CLIENT_ID if provider == "google" else settings.GITHUB_CLIENT_ID,

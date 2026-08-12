@@ -1,3 +1,18 @@
+"""Letter endpoints.
+
+Authorization model, in one place so it is easy to audit:
+
+* Creating is open — guests compose letters before they ever sign up. When a
+  session is present the letter is attached to it.
+* Reading a single letter by slug is open: the slug *is* the capability. It is
+  10 random characters from `secrets`, and handing it to the recipient is the
+  whole product.
+* Listing is admin-only. A public list hands out every letter's names, private
+  message and `delivery_contact` (recipient phone numbers and emails) and makes
+  the slug entropy pointless.
+* Updating and deleting require the owner, or an admin.
+"""
+
 from typing import Optional
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -5,7 +20,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.core.deps import current_user, current_user_optional
+from app.core.deps import current_user, current_user_optional, require_admin
 from app.modules.auth.models import User
 from app.modules.letters.models import Letter
 from app.modules.letters.schemas import (
@@ -24,6 +39,27 @@ from app.modules.letters.schemas import (
 from app.modules.letters.service import LetterService, TypedLetterService
 
 router = APIRouter()
+
+
+async def load_owned_letter(
+    db: AsyncSession, slug: str, user: User, letter_type: Optional[str] = None
+) -> Letter:
+    """Fetch a letter the caller is allowed to modify, or raise.
+
+    Guest letters (`user_id is None`) have no owner and are admin-only. The
+    404/403 split is safe here because a caller holding a valid slug can read
+    the letter anyway, so 403 leaks nothing new.
+    """
+    query = select(Letter).where(Letter.slug == slug)
+    if letter_type:
+        query = query.where(Letter.type == letter_type)
+    letter = await db.scalar(query)
+    if letter is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"Letter '{slug}' not found.")
+    if user.role != "admin" and (letter.user_id is None or letter.user_id != user.id):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "This letter belongs to someone else.")
+    return letter
+
 
 # --------------------------------------------------------------------------
 # Type-specific routers for frontend experience endpoints
@@ -45,7 +81,10 @@ def _make_type_router(letter_type: str, create_schema) -> APIRouter:
     @r.get("", response_model=TypedLetterListResponse)
     @r.get("/", response_model=TypedLetterListResponse, include_in_schema=False)
     async def list_items(
-        skip: int = Query(0, ge=0), limit: int = Query(20, ge=1, le=100), db: AsyncSession = Depends(get_db)
+        skip: int = Query(0, ge=0),
+        limit: int = Query(20, ge=1, le=100),
+        db: AsyncSession = Depends(get_db),
+        admin: User = Depends(require_admin),
     ):
         letters, total = await TypedLetterService.list_by_type(db, letter_type, skip=skip, limit=limit)
         return TypedLetterListResponse(total=total, letters=letters)
@@ -58,9 +97,14 @@ def _make_type_router(letter_type: str, create_schema) -> APIRouter:
         return res
 
     @r.delete("/{slug}", status_code=status.HTTP_204_NO_CONTENT)
-    async def delete_by_slug(slug: str, db: AsyncSession = Depends(get_db)):
-        if not await TypedLetterService.delete_by_slug(db, slug, letter_type):
-            raise HTTPException(status.HTTP_404_NOT_FOUND, f"Letter '{slug}' not found.")
+    async def delete_by_slug(
+        slug: str,
+        db: AsyncSession = Depends(get_db),
+        user: User = Depends(current_user),
+    ):
+        letter = await load_owned_letter(db, slug, user, letter_type)
+        await db.delete(letter)
+        await db.commit()
         return None
 
     return r
@@ -112,18 +156,20 @@ async def list_my_letters(
 @generic_router.post("/", response_model=LetterResponse, status_code=status.HTTP_201_CREATED, include_in_schema=False)
 async def create_generic_letter(
     data: LetterCreate,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    user: Optional[User] = Depends(current_user_optional),
 ):
-    return await LetterService.create_letter(db, data)
+    return await LetterService.create_letter(db, data, user_id=user.id if user else None)
 
 
-@generic_router.get("", response_model=LetterListResponse, summary="List all letters")
+@generic_router.get("", response_model=LetterListResponse, summary="List all letters (admin)")
 @generic_router.get("/", response_model=LetterListResponse, include_in_schema=False)
 async def list_generic_letters(
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
     type: str = Query(None, description="Filter by letter type"),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
 ):
     letters, total = await LetterService.list_letters(db, skip=skip, limit=limit, type_filter=type)
     return LetterListResponse(total=total, letters=letters)
@@ -147,26 +193,20 @@ async def get_generic_letter(
 async def update_generic_letter(
     slug: str,
     data: LetterUpdate,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(current_user),
 ):
-    letter = await LetterService.update_letter(db, slug, data)
-    if not letter:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Letter with slug '{slug}' not found"
-        )
-    return letter
+    letter = await load_owned_letter(db, slug, user)
+    return await LetterService.apply_update(db, letter, data)
 
 
 @generic_router.delete("/{slug}", status_code=status.HTTP_204_NO_CONTENT, summary="Delete a letter")
 async def delete_generic_letter(
     slug: str,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(current_user),
 ):
-    success = await LetterService.delete_letter(db, slug)
-    if not success:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Letter with slug '{slug}' not found"
-        )
+    letter = await load_owned_letter(db, slug, user)
+    await db.delete(letter)
+    await db.commit()
     return None
