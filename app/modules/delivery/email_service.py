@@ -18,7 +18,7 @@ def _shell(heading: str, body_html: str, button_label: str, button_url: str) -> 
     return f"""\
 <div style="margin:0;padding:32px 16px;background:#fdf7f4;font-family:Georgia,'Times New Roman',serif;color:#3b2f2f">
   <div style="max-width:520px;margin:0 auto;background:#fffdfb;border:1px solid #f0e2da;border-radius:24px;padding:40px 32px">
-    <p style="margin:0 0 24px;font-size:13px;letter-spacing:.2em;text-transform:uppercase;color:#d4667a">Wish2Love</p>
+    <p style="margin:0 0 24px;font-size:13px;letter-spacing:.2em;text-transform:uppercase;color:#d4667a">Wish2Luv</p>
     <h1 style="margin:0 0 16px;font-size:26px;line-height:1.3;font-weight:normal">{heading}</h1>
     {body_html}
     <a href="{button_url}"
@@ -85,7 +85,7 @@ class EmailService:
             heading=f"Hello {escape(name)},",
             body_html=(
                 "<p style='margin:0;font-size:16px;line-height:1.6'>Someone asked to reset the password "
-                "on your Wish2Love account. This link works once and expires in 30 minutes.</p>"
+                "on your Wish2Luv account. This link works once and expires in 30 minutes.</p>"
                 "<p style='margin:12px 0 0;font-size:16px;line-height:1.6'>If it was not you, ignore this "
                 "email — nothing has changed.</p>"
             ),
@@ -94,15 +94,15 @@ class EmailService:
         )
         text = (
             f"Hello {name},\n\n"
-            f"Reset your Wish2Love password here (valid for 30 minutes):\n{link}\n\n"
+            f"Reset your Wish2Luv password here (valid for 30 minutes):\n{link}\n\n"
             "If you did not ask for this, ignore this email."
         )
-        return await cls.send_email(to_email, "Reset your Wish2Love password", html, text)
+        return await cls.send_email(to_email, "Reset your Wish2Luv password", html, text)
 
     @classmethod
     async def send_invite(cls, to_email: str, link: str) -> bool:
         html = _shell(
-            heading="You have been invited to Wish2Love.",
+            heading="You have been invited to Wish2Luv.",
             body_html=(
                 "<p style='margin:0;font-size:16px;line-height:1.6'>An account has been created for you. "
                 "Pick a password to finish setting it up — this link is good for a week.</p>"
@@ -110,8 +110,8 @@ class EmailService:
             button_label="Set your password",
             button_url=link,
         )
-        text = f"You have been invited to Wish2Love. Set your password here (valid 7 days):\n{link}"
-        return await cls.send_email(to_email, "Your Wish2Love invitation", html, text)
+        text = f"You have been invited to Wish2Luv. Set your password here (valid 7 days):\n{link}"
+        return await cls.send_email(to_email, "Your Wish2Luv invitation", html, text)
 
     @classmethod
     async def send_letter(cls, to_email: str, from_name: str, to_name: str, link: str) -> bool:
@@ -133,4 +133,4 @@ class EmailService:
 def sender_display_name() -> str:
     """The human-readable half of MAIL_FROM, for logs and previews."""
     name, addr = parseaddr(settings.MAIL_FROM)
-    return formataddr((name or "Wish2Love", addr))
+    return formataddr((name or "Wish2Luv", addr))

@@ -1,6 +1,6 @@
-# Wish2Love API
+# Wish2Luv API
 
-FastAPI backend for **Wish2Love** — keepsake letters with photos, music and a
+FastAPI backend for **Wish2Luv** — keepsake letters with photos, music and a
 share link. Async SQLAlchemy 2.0, Alembic migrations, Postgres in production
 (SQLite works for local development).
 

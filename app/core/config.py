@@ -32,7 +32,7 @@ def _strip_libpq_params(url: str) -> str:
 
 
 class Settings(BaseSettings):
-    PROJECT_NAME: str = "Wish2Love API"
+    PROJECT_NAME: str = "Wish2Luv API"
     API_V1_STR: str = "/api/v1"
     HOST: str = "0.0.0.0"
     PORT: int = 8000
@@ -128,7 +128,7 @@ class Settings(BaseSettings):
     SMTP_PORT: int = 587
     SMTP_USER: str = ""
     SMTP_PASSWORD: str = ""
-    MAIL_FROM: str = "Wish2Love <no-reply@wish2love.com>"
+    MAIL_FROM: str = "Wish2Luv <no-reply@wish2luv.com>"
 
     @property
     def smtp_enabled(self) -> bool:

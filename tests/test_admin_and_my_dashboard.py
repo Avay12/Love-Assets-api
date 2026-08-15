@@ -63,7 +63,7 @@ async def test_admin_dashboard_protection_and_stats(client: AsyncClient, db_sess
     # 1. Register user & upgrade role to admin in DB
     reg = await client.post(
         "/api/v1/auth/register",
-        json={"name": "Admin Boss", "email": "boss@wish2love.com", "password": "AdminPass123!"},
+        json={"name": "Admin Boss", "email": "boss@wish2luv.com", "password": "AdminPass123!"},
     )
     assert reg.status_code == 201, reg.text
     token = reg.json()["access_token"]

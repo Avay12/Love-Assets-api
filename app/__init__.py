@@ -1,1 +1,1 @@
-# Wish2Love API Package
+# Wish2Luv API Package
