@@ -17,6 +17,9 @@ TYPE_PATHS = {
     "birthday": "/api/v1/birthday-letters",
     "birthday-invite": "/api/v1/birthday-invitations",
     "wedding": "/api/v1/wedding-invitations",
+    "mothers-day": "/api/v1/mothers-day-letters",
+    "fathers-day": "/api/v1/fathers-day-letters",
+    "parents": "/api/v1/parent-letters",
 }
 
 
@@ -29,7 +32,7 @@ async def test_create_and_fetch_each_type(client, letter_type, path):
 
     assert body["type"] == letter_type
     assert body["slug"].startswith(
-        {"love": "love", "valentine": "val", "birthday": "bday", "birthday-invite": "party", "wedding": "wed"}[
+        {"love": "love", "valentine": "val", "birthday": "bday", "birthday-invite": "party", "wedding": "wed", "mothers-day": "mom", "fathers-day": "dad", "parents": "parent"}[
             letter_type
         ]
     )

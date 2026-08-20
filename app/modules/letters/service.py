@@ -23,6 +23,9 @@ SLUG_PREFIX = {
     "birthday": "bday",
     "birthday-invite": "party",
     "wedding": "wed",
+    "mothers-day": "mom",
+    "fathers-day": "dad",
+    "parents": "parent",
 }
 
 _ALPHABET = string.ascii_lowercase + string.digits

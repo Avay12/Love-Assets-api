@@ -5,11 +5,9 @@ Authorization model, in one place so it is easy to audit:
 * Creating is open — guests compose letters before they ever sign up. When a
   session is present the letter is attached to it.
 * Reading a single letter by slug is open: the slug *is* the capability. It is
-  10 random characters from `secrets`, and handing it to the recipient is the
+  10 random characters from secrets, and handing it to the recipient is the
   whole product.
-* Listing is admin-only. A public list hands out every letter's names, private
-  message and `delivery_contact` (recipient phone numbers and emails) and makes
-  the slug entropy pointless.
+* Listing is admin-only.
 * Updating and deleting require the owner, or an admin.
 """
 
@@ -26,11 +24,14 @@ from app.modules.letters.models import Letter
 from app.modules.letters.schemas import (
     BirthdayInviteCreate,
     BirthdayLetterCreate,
+    FathersDayLetterCreate,
     LetterCreate,
     LetterListResponse,
     LetterResponse,
     LetterUpdate,
     LoveLetterCreate,
+    MothersDayLetterCreate,
+    ParentLetterCreate,
     TypedLetterListResponse,
     TypedLetterResponse,
     ValentineLetterCreate,
@@ -44,12 +45,6 @@ router = APIRouter()
 async def load_owned_letter(
     db: AsyncSession, slug: str, user: User, letter_type: Optional[str] = None
 ) -> Letter:
-    """Fetch a letter the caller is allowed to modify, or raise.
-
-    Guest letters (`user_id is None`) have no owner and are admin-only. The
-    404/403 split is safe here because a caller holding a valid slug can read
-    the letter anyway, so 403 leaks nothing new.
-    """
     query = select(Letter).where(Letter.slug == slug)
     if letter_type:
         query = query.where(Letter.type == letter_type)
@@ -96,6 +91,16 @@ def _make_type_router(letter_type: str, create_schema) -> APIRouter:
             raise HTTPException(status.HTTP_404_NOT_FOUND, f"Letter '{slug}' not found.")
         return res
 
+    @r.put("/{slug}", response_model=LetterResponse)
+    async def update_by_slug(
+        slug: str,
+        data: LetterUpdate,
+        db: AsyncSession = Depends(get_db),
+        user: User = Depends(current_user),
+    ):
+        letter = await load_owned_letter(db, slug, user, letter_type)
+        return await LetterService.apply_update(db, letter, data)
+
     @r.delete("/{slug}", status_code=status.HTTP_204_NO_CONTENT)
     async def delete_by_slug(
         slug: str,
@@ -115,6 +120,9 @@ valentine_router = _make_type_router("valentine", ValentineLetterCreate)
 birthday_router = _make_type_router("birthday", BirthdayLetterCreate)
 birthday_invite_router = _make_type_router("birthday-invite", BirthdayInviteCreate)
 wedding_router = _make_type_router("wedding", WeddingInviteCreate)
+mothers_day_router = _make_type_router("mothers-day", MothersDayLetterCreate)
+fathers_day_router = _make_type_router("fathers-day", FathersDayLetterCreate)
+parents_router = _make_type_router("parents", ParentLetterCreate)
 
 
 # --------------------------------------------------------------------------

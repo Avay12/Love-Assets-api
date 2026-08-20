@@ -3,7 +3,16 @@ from typing import List, Literal, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-LETTER_TYPES = ("love", "valentine", "birthday", "birthday-invite", "wedding")
+LETTER_TYPES = (
+    "love",
+    "valentine",
+    "birthday",
+    "birthday-invite",
+    "wedding",
+    "mothers-day",
+    "fathers-day",
+    "parents",
+)
 
 
 class MusicTrackInfo(BaseModel):
@@ -14,7 +23,7 @@ class MusicTrackInfo(BaseModel):
 
 
 class LetterBase(BaseModel):
-    type: str = Field(default="love", description="Type of letter: 'love' or 'birthday'")
+    type: str = Field(default="love", description="Type of letter: 'love', 'birthday', etc.")
     template_id: str = Field(default="mailbox", description="Template identifier")
     from_name: str = Field(..., min_length=1, max_length=128, description="Sender name")
     to_name: str = Field(..., min_length=1, max_length=128, description="Recipient name")
@@ -46,6 +55,7 @@ class LetterUpdate(BaseModel):
     delivery_method: Optional[str] = None
     delivery_contact: Optional[str] = None
     scheduled_at: Optional[datetime] = None
+    details: Optional[dict] = None
 
 
 class LetterResponse(LetterBase):
@@ -99,12 +109,19 @@ class StoryChapter(BaseModel):
 
 class LoveDetails(BaseModel):
     model_config = ConfigDict(extra="forbid")
+    passcode: Optional[str] = Field(default=None, max_length=64)
+    passcode_hint: Optional[str] = Field(default=None, max_length=200)
 
 
 class ValentineDetails(BaseModel):
     model_config = ConfigDict(extra="forbid")
     rsvp_enabled: bool = True
     date_night: Optional[str] = Field(default=None, max_length=200)
+    proposal_question: Optional[str] = Field(default=None, max_length=200)
+    proposal_note: Optional[str] = Field(default=None, max_length=500)
+    captions: Optional[List[str]] = Field(default_factory=list)
+    passcode: Optional[str] = Field(default=None, max_length=64)
+    passcode_hint: Optional[str] = Field(default=None, max_length=200)
 
 
 def turning_age_from(birth_date: Optional[date], event_date: Optional[date]) -> Optional[int]:
@@ -134,6 +151,10 @@ class _CelebrantMixin(BaseModel):
 
 class BirthdayDetails(_CelebrantMixin):
     model_config = ConfigDict(extra="forbid")
+    surprise_message: Optional[str] = Field(default=None, max_length=1000)
+    captions: Optional[List[str]] = Field(default_factory=list)
+    passcode: Optional[str] = Field(default=None, max_length=64)
+    passcode_hint: Optional[str] = Field(default=None, max_length=200)
 
 
 class BirthdayInviteDetails(_CelebrantMixin):
@@ -164,8 +185,6 @@ class BirthdayInviteDetails(_CelebrantMixin):
         return self
 
 
-from typing import List, Literal, Optional, Union
-
 class WeddingDetails(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -181,6 +200,30 @@ class WeddingDetails(BaseModel):
     dress_code: Optional[str] = Field(default=None, max_length=200)
     gift_accounts: List[BankAccount] = Field(default_factory=list, max_length=4)
     story: Optional[Union[List[StoryChapter], str]] = Field(default=None)
+
+
+class MothersDayDetails(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    quote: Optional[str] = Field(default=None, max_length=600)
+    quote_author: Optional[str] = Field(default=None, max_length=120)
+    passcode: Optional[str] = Field(default=None, max_length=64)
+    passcode_hint: Optional[str] = Field(default=None, max_length=200)
+
+
+class FathersDayDetails(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    quote: Optional[str] = Field(default=None, max_length=600)
+    quote_author: Optional[str] = Field(default=None, max_length=120)
+    passcode: Optional[str] = Field(default=None, max_length=64)
+    passcode_hint: Optional[str] = Field(default=None, max_length=200)
+
+
+class ParentDetails(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    quote: Optional[str] = Field(default=None, max_length=600)
+    quote_author: Optional[str] = Field(default=None, max_length=120)
+    passcode: Optional[str] = Field(default=None, max_length=64)
+    passcode_hint: Optional[str] = Field(default=None, max_length=200)
 
 
 class LoveLetterCreate(LetterCommon):
@@ -201,6 +244,18 @@ class BirthdayInviteCreate(LetterCommon):
 
 class WeddingInviteCreate(LetterCommon):
     details: WeddingDetails = Field(default_factory=WeddingDetails)
+
+
+class MothersDayLetterCreate(LetterCommon):
+    details: MothersDayDetails = Field(default_factory=MothersDayDetails)
+
+
+class FathersDayLetterCreate(LetterCommon):
+    details: FathersDayDetails = Field(default_factory=FathersDayDetails)
+
+
+class ParentLetterCreate(LetterCommon):
+    details: ParentDetails = Field(default_factory=ParentDetails)
 
 
 class TypedLetterResponse(LetterCommon):

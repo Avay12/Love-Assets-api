@@ -10,6 +10,9 @@ from app.modules.letters.router import (
     love_router,
     valentine_router,
     wedding_router,
+    mothers_day_router,
+    fathers_day_router,
+    parents_router,
 )
 from app.modules.media.router import router as media_router
 from app.modules.music.router import router as music_router
@@ -29,6 +32,9 @@ api_router.include_router(valentine_router, prefix="/valentine-letters", tags=["
 api_router.include_router(birthday_router, prefix="/birthday-letters", tags=["Birthday Letters"])
 api_router.include_router(birthday_invite_router, prefix="/birthday-invitations", tags=["Birthday Invitations"])
 api_router.include_router(wedding_router, prefix="/wedding-invitations", tags=["Wedding Invitations"])
+api_router.include_router(mothers_day_router, prefix="/mothers-day-letters", tags=["Mother's Day Letters"])
+api_router.include_router(fathers_day_router, prefix="/fathers-day-letters", tags=["Father's Day Letters"])
+api_router.include_router(parents_router, prefix="/parent-letters", tags=["Parent Letters"])
 
 api_router.include_router(letters_router, prefix="/letters", tags=["Letters (generic)"])
 api_router.include_router(payments_router, prefix="/payments", tags=["Payments"])
