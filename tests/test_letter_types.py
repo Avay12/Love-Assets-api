@@ -270,3 +270,24 @@ async def test_invitation_carries_attendance_manager_and_venue(client):
 async def test_love_letter_still_rejects_birthday_fields(client):
     res = await client.post("/api/v1/love-letters/", json={**BASE, "details": {"birth_date": "2009-01-05"}})
     assert res.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_upload_and_optimize_real_image(client):
+    import io
+    from PIL import Image
+
+    # Create a test image with PIL
+    img = Image.new("RGBA", (3000, 2000), color=(255, 100, 100, 255))
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    buf.seek(0)
+
+    files = {"file": ("test_large_photo.png", buf, "image/png")}
+    res = await client.post("/api/v1/media/upload", files=files)
+    assert res.status_code == 201, res.text
+    data = res.json()
+    assert data["url"].startswith("http")
+    assert "test_large_photo" in data["filename"]
+    # Should be compressed / converted to webp
+    assert data["filename"].endswith(".webp")

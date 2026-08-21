@@ -12,9 +12,9 @@ router = APIRouter()
     response_model=FileUploadResponse,
     status_code=status.HTTP_201_CREATED,
     # Unauthenticated by design -- guests compose letters before signing up --
-    # which also makes it an open write-to-disk endpoint. 60 files an hour per
-    # IP is far above what composing a letter needs (12 photos maximum).
-    dependencies=[Depends(RateLimiter(60, 3600, "upload"))],
+    # which also makes it an open write-to-disk endpoint. 120 files an hour per
+    # IP allows comfortable composing and editing of photo-heavy letters.
+    dependencies=[Depends(RateLimiter(120, 3600, "upload"))],
     summary="Upload photo or media asset",
 )
 async def upload_media_file(
