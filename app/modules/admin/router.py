@@ -229,7 +229,7 @@ async def get_admin_letters(
         result.append(
             AdminLetterItem(
                 id=letter.slug,
-                title=f"To {letter.to_name} (from {letter.from_name})",
+                title=letter.slug,
                 type=type_title,
                 template=letter.template_id,
                 author=author,
