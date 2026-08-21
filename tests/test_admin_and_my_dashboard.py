@@ -101,3 +101,13 @@ async def test_admin_dashboard_protection_and_stats(client: AsyncClient, db_sess
     # 6. Admin calls payments list
     payments_res = await client.get("/api/v1/admin/payments")
     assert payments_res.status_code == 200, payments_res.text
+
+    # 7. Admin deletes a user (cannot delete self)
+    self_del = await client.delete(f"/api/v1/admin/users/{user_id}")
+    assert self_del.status_code == 400, "Should prevent self-deletion"
+
+    # Delete the invited user
+    invited_id = invite_res.json()["id"]
+    del_res = await client.delete(f"/api/v1/admin/users/{invited_id}")
+    assert del_res.status_code == 200, del_res.text
+    assert del_res.json()["ok"] is True

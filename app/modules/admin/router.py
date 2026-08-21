@@ -169,6 +169,44 @@ async def invite_user(
     return {"message": message, "id": f"USR-{invited.id + 1000}", "email_sent": sent}
 
 
+@router.delete("/users/{user_id}", status_code=status.HTTP_200_OK)
+async def delete_admin_user(
+    user_id: str,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    cleaned = user_id.strip()
+    target_id = None
+    if cleaned.upper().startswith("USR-"):
+        try:
+            target_id = int(cleaned[4:]) - 1000
+        except ValueError:
+            pass
+    if target_id is None:
+        try:
+            target_id = int(cleaned)
+        except ValueError:
+            pass
+
+    if target_id is None or target_id <= 0:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Invalid user ID format: {user_id}")
+
+    res = await db.execute(select(User).where(User.id == target_id))
+    target_user = res.scalar_one_or_none()
+    if not target_user:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"User '{user_id}' not found.")
+
+    if target_user.id == admin.id:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "You cannot delete your own admin account.")
+
+    user_name = target_user.name
+    user_email = target_user.email
+    await db.delete(target_user)
+    await db.commit()
+
+    return {"message": f"User '{user_name}' ({user_email}) has been deleted successfully.", "ok": True}
+
+
 @router.get("/letters", response_model=List[AdminLetterItem])
 async def get_admin_letters(
     db: AsyncSession = Depends(get_db),
