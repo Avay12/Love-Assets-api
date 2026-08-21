@@ -173,6 +173,36 @@ class LetterService:
 
 class TypedLetterService:
     @staticmethod
+    async def update_by_slug(
+        db: AsyncSession, letter: Letter, data: LetterCommon
+    ) -> TypedLetterResponse:
+        letter.template_id = data.template_id
+        letter.from_name = data.from_name
+        letter.to_name = data.to_name
+        letter.message = data.message
+        letter.photos = data.photos or []
+        letter.song_id = data.song_id
+        letter.song_title = data.song_title
+        letter.song_artist = data.song_artist
+        letter.song_preview_url = data.song_preview_url
+        letter.delivery_method = data.delivery_method
+        letter.delivery_contact = data.delivery_contact
+        letter.scheduled_at = data.scheduled_at
+
+        details = data.details.model_dump(mode="json", exclude_none=True) if hasattr(data, "details") else (letter.details or {})
+        if data.artwork:
+            details["_artwork"] = data.artwork
+        letter.details = details
+
+        await db.commit()
+        await db.refresh(letter)
+
+        if data.delivery_method in ("email", "sms", "call") and data.delivery_contact:
+            await notify_recipient(letter)
+
+        return to_response(letter)
+
+    @staticmethod
     async def create(
         db: AsyncSession, letter_type: str, data: LetterCommon, user_id: Optional[int] = None
     ) -> TypedLetterResponse:

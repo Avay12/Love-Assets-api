@@ -17,3 +17,11 @@ class DeliveryResponse(BaseModel):
     method: str
     contact: Optional[str] = None
     scheduled_at: Optional[datetime] = None
+
+
+
+class DeliveryPricing(BaseModel):
+    link: float = Field(default=1.0, ge=0.0, description="Price for Private Link delivery in USD")
+    email: float = Field(default=2.0, ge=0.0, description="Price for Email delivery in USD")
+    sms: float = Field(default=3.0, ge=0.0, description="Price for SMS delivery in USD")
+    call: float = Field(default=4.0, ge=0.0, description="Price for Voice Call delivery in USD")

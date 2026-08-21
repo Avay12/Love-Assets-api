@@ -13,6 +13,8 @@ from app.core.deps import require_admin, current_user
 from app.modules.auth.models import User
 from app.modules.auth.service import AuthService
 from app.modules.delivery.email_service import EmailService
+from app.modules.delivery.schemas import DeliveryPricing
+from app.modules.delivery.service import DeliveryService
 from app.modules.letters.models import Letter
 from app.modules.payments.models import Payment
 from app.modules.admin.schemas import (
@@ -332,3 +334,17 @@ async def change_password(
     user.password_hash = hash_password(body.new_password)
     await db.commit()
     return {"message": "Password updated successfully."}
+
+
+
+@router.get("/delivery-pricing", response_model=DeliveryPricing, summary="Get delivery pricing settings")
+async def get_admin_delivery_pricing(admin: User = Depends(require_admin)):
+    return DeliveryService.get_pricing()
+
+
+@router.put("/delivery-pricing", response_model=DeliveryPricing, summary="Update delivery pricing settings")
+async def update_admin_delivery_pricing(
+    pricing: DeliveryPricing,
+    admin: User = Depends(require_admin),
+):
+    return DeliveryService.update_pricing(pricing)

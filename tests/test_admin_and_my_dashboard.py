@@ -111,3 +111,17 @@ async def test_admin_dashboard_protection_and_stats(client: AsyncClient, db_sess
     del_res = await client.delete(f"/api/v1/admin/users/{invited_id}")
     assert del_res.status_code == 200, del_res.text
     assert del_res.json()["ok"] is True
+
+    # 8. Delivery Pricing endpoints
+    public_price = await client.get("/api/v1/delivery/pricing")
+    assert public_price.status_code == 200
+    assert "link" in public_price.json()
+
+    # Admin updates delivery pricing
+    update_price = await client.put(
+        "/api/v1/admin/delivery-pricing",
+        json={"link": 1.5, "email": 2.5, "sms": 3.5, "call": 4.5},
+    )
+    assert update_price.status_code == 200
+    assert update_price.json()["link"] == 1.5
+    assert update_price.json()["email"] == 2.5

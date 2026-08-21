@@ -13,7 +13,29 @@ _MESSAGES = {
 }
 
 
+_DEFAULT_PRICING = {
+    "link": 1.0,
+    "email": 2.0,
+    "sms": 3.0,
+    "call": 4.0,
+}
+_current_pricing = dict(_DEFAULT_PRICING)
+
+
 class DeliveryService:
+    @staticmethod
+    def get_pricing() -> dict:
+        return dict(_current_pricing)
+
+    @staticmethod
+    def update_pricing(pricing: "DeliveryPricing") -> dict:
+        global _current_pricing
+        _current_pricing["link"] = round(float(pricing.link), 2)
+        _current_pricing["email"] = round(float(pricing.email), 2)
+        _current_pricing["sms"] = round(float(pricing.sms), 2)
+        _current_pricing["call"] = round(float(pricing.call), 2)
+        return dict(_current_pricing)
+
     @staticmethod
     async def process_delivery(db: AsyncSession, letter: Letter, request: DeliveryRequest) -> DeliveryResponse:
         """Re-target a letter's delivery. The caller must already have been

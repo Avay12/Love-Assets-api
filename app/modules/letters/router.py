@@ -91,15 +91,15 @@ def _make_type_router(letter_type: str, create_schema) -> APIRouter:
             raise HTTPException(status.HTTP_404_NOT_FOUND, f"Letter '{slug}' not found.")
         return res
 
-    @r.put("/{slug}", response_model=LetterResponse)
+    @r.put("/{slug}", response_model=TypedLetterResponse)
     async def update_by_slug(
         slug: str,
-        data: LetterUpdate,
+        data: create_schema,
         db: AsyncSession = Depends(get_db),
         user: User = Depends(current_user),
     ):
         letter = await load_owned_letter(db, slug, user, letter_type)
-        return await LetterService.apply_update(db, letter, data)
+        return await TypedLetterService.update_by_slug(db, letter, data)
 
     @r.delete("/{slug}", status_code=status.HTTP_204_NO_CONTENT)
     async def delete_by_slug(
